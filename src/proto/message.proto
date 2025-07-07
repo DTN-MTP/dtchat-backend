@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package proto;
+
+message ProtoMessage {
+  string uuid = 1;
+  string sender_uuid = 2;
+  int64 timestamp = 3;
+  string room_uuid = 4;
+
+  oneof msg_type {
+    TextMessage text = 5;
+    AckMessage ack = 6;
+  }
+}
+
+message TextMessage {
+  string text = 1;
+}
+
+message AckMessage {
+  string message_uuid = 1;
+}

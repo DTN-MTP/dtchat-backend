@@ -1,0 +1,111 @@
+use core::cmp::Ordering;
+
+use chrono::{DateTime, Utc};
+
+use crate::{
+    dtchat::generate_uuid,
+    proto::{ProtoMessage, TextMessage},
+};
+
+#[derive(Clone, Debug)]
+pub struct ChatMessage {
+    pub uuid: String,
+    pub sender_uuid: String,
+    pub room_uuid: String,
+    pub text: String,
+    pub send_time: DateTime<Utc>,
+    pub send_completed: Option<DateTime<Utc>>,
+    pub predicted_arrival_time: Option<DateTime<Utc>>,
+    pub receive_time: Option<DateTime<Utc>>,
+}
+
+fn get_timestamps_frm_opt(datetime_opt: Option<DateTime<Utc>>) -> Option<i64> {
+    if let Some(datetime) = datetime_opt {
+        return Some(datetime.timestamp_millis() as i64);
+    }
+    None
+}
+
+impl ChatMessage {
+    pub fn new_to_send(sender_uuid: &String, room_uuid: &String, text: &String) -> Self {
+        ChatMessage {
+            uuid: generate_uuid(),
+            sender_uuid: sender_uuid.clone(),
+            room_uuid: room_uuid.clone(),
+            text: text.clone(),
+            send_time: Utc::now(),
+            send_completed: None,
+            predicted_arrival_time: None,
+            receive_time: None,
+        }
+    }
+
+    pub fn new_received(proto_msg: &ProtoMessage, text_part: &TextMessage) -> Option<Self> {
+        if let Some(datetime) = DateTime::from_timestamp_millis(proto_msg.timestamp) {
+            return Some(ChatMessage {
+                uuid: proto_msg.uuid.clone(),
+                sender_uuid: proto_msg.sender_uuid.clone(),
+                room_uuid: proto_msg.room_uuid.clone(),
+                text: text_part.text.clone(),
+                send_time: datetime.clone(),
+                send_completed: Some(datetime),
+                predicted_arrival_time: None,
+                receive_time: Some(Utc::now()),
+            });
+        }
+        None
+    }
+
+    pub fn get_shipment_status_otp(
+        &self,
+    ) -> (DateTime<Utc>, Option<DateTime<Utc>>, Option<DateTime<Utc>>) {
+        return (
+            self.send_time,
+            self.predicted_arrival_time,
+            self.receive_time,
+        );
+    }
+
+    pub fn get_shipment_status_timestamps(&self) -> (i64, Option<i64>, Option<i64>) {
+        return (
+            self.send_time.timestamp_millis(),
+            get_timestamps_frm_opt(self.predicted_arrival_time),
+            get_timestamps_frm_opt(self.receive_time),
+        );
+    }
+}
+
+#[derive(PartialEq, Eq, Clone)]
+pub enum SortStrategy {
+    Standard,
+    Relative(String),
+}
+
+pub fn standard_cmp(a: &ChatMessage, b: &ChatMessage) -> Ordering {
+    let tx_a = a.send_time;
+    let tx_b = b.send_time;
+
+    let rx_a = a.receive_time.unwrap_or(tx_a);
+    let rx_b = b.receive_time.unwrap_or(tx_b);
+    tx_a.cmp(&tx_b).then(rx_a.cmp(&rx_b))
+}
+
+pub fn relative_cmp(a: &ChatMessage, b: &ChatMessage, ctx_peer_uuid: &str) -> Ordering {
+    let tx_a = a.send_time;
+    let tx_b = b.send_time;
+
+    let rx_a = a.receive_time.unwrap_or(tx_a);
+    let rx_b = b.receive_time.unwrap_or(tx_b);
+
+    let anchor_a = if a.sender_uuid == ctx_peer_uuid {
+        rx_a
+    } else {
+        tx_a
+    };
+    let anchor_b = if b.sender_uuid == ctx_peer_uuid {
+        rx_b
+    } else {
+        tx_b
+    };
+    anchor_a.cmp(&anchor_b)
+}
