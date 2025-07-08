@@ -17,14 +17,10 @@ impl ProtoMessage {
             })),
         }
     }
-    pub fn new_ack(
-        for_msg: &ChatMessage,
-        local_peer_uuids: String,
-        timestamp: i64,
-    ) -> ProtoMessage {
+    pub fn new_ack(for_msg: &ChatMessage, local_peer_uuid: String, timestamp: i64) -> ProtoMessage {
         ProtoMessage {
             uuid: generate_uuid(),
-            sender_uuid: local_peer_uuids,
+            sender_uuid: local_peer_uuid,
             timestamp,
             room_uuid: for_msg.room_uuid.clone(),
 

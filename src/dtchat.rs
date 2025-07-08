@@ -1,6 +1,6 @@
-use std::{sync::{Arc, Mutex}};
+use std::sync::{Arc, Mutex};
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use socket_engine::{
     endpoint::Endpoint,
     engine::Engine,
@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::{
     event::{AppEvent, AppEventObserver},
-    message::{relative_cmp, standard_cmp, ChatMessage, SortStrategy},
+    message::{ChatMessage, SortStrategy},
     proto::{proto_message::MsgType, ProtoMessage},
 };
 
@@ -25,6 +25,12 @@ pub struct Peer {
     pub endpoints: Vec<Endpoint>,
 }
 
+#[derive(PartialEq, Eq)]
+enum MessageType {
+    Ack,
+    Text,
+}
+
 pub struct ChatModel {
     pub sort_strategy: SortStrategy,
     pub localpeer: Peer,
@@ -33,8 +39,10 @@ pub struct ChatModel {
 
     observers: Vec<Arc<Mutex<dyn AppEventObserver>>>,
     network_engine: Option<Engine>,
-    pending_send_list: Vec<(bool, String)>,
+    pending_send_list: Vec<(MessageType, String)>,
 }
+
+
 
 impl EngineObserver for ChatModel {
     fn notify(&mut self, event: SocketEngineEvent) {
@@ -59,6 +67,7 @@ impl EngineObserver for ChatModel {
 impl ChatModel {
     pub fn new(localpeer: Peer, peers: Vec<Peer>) -> Self {
         Self {
+            // TODO: have an SQL(ite) db.rs
             sort_strategy: SortStrategy::Standard,
             localpeer,
             peers,
@@ -72,7 +81,7 @@ impl ChatModel {
         self.network_engine = Some(engine);
         if let Some(eng) = &self.network_engine {
             for endpoint in &self.localpeer.endpoints {
-                eng.start_listener(endpoint.clone());
+                eng.start_listener_async(endpoint.clone());
             }
         }
     }
@@ -91,7 +100,7 @@ impl ChatModel {
                         .notify_observers(AppEvent::Error(format!("Protobuf: Invalid timestamp"))),
                 }
             }
-            Some(MsgType::Ack(ack)) => self.apply_ack(&ack.message_uuid, Utc::now()),
+            Some(MsgType::Ack(ack)) => self.apply_ack(&ack.message_uuid),
             None => self.notify_observers(AppEvent::Error(format!(
                 "Messaging: received proto variant of unknown type"
             ))),
@@ -111,7 +120,7 @@ impl ChatModel {
     pub fn send_to_peer(&mut self, text: &String, room: &String, endpoint: &Endpoint) {
         let chatmsg = ChatMessage::new_to_send(&self.localpeer.uuid, room, text);
         let sending_uuid = chatmsg.uuid.clone();
-        self.pending_send_list.push((true, sending_uuid.clone()));
+        self.pending_send_list.push((MessageType::Text, sending_uuid.clone()));
         self.add_message(chatmsg.clone());
 
         if let Some(engine) = &mut self.network_engine {
@@ -140,13 +149,14 @@ impl ChatModel {
             self.localpeer.uuid.clone(),
             Utc::now().timestamp_millis(),
         );
-        self.pending_send_list.push((false, proto_msg.uuid.clone()));
+        self.pending_send_list.push((MessageType::Ack, proto_msg.uuid.clone()));
         if let Some(engine) = &mut self.network_engine {
             match proto_msg.encode_to_vec() {
                 // failure to send ack could be checked
                 Ok(bytes) => {
                     let _ =
                         engine.send_async(peer.endpoints[0].clone(), bytes, proto_msg.uuid.clone());
+                    //TODO let _
                 }
                 Err(_) => todo!(),
             };
@@ -155,18 +165,9 @@ impl ChatModel {
         }
     }
 
-    pub fn add_message(&mut self, new_msg: ChatMessage) {
-        let idx = match &self.sort_strategy {
-            SortStrategy::Standard => self
-                .messages
-                .binary_search_by(|msg| standard_cmp(msg, &new_msg))
-                .unwrap_or_else(|i| i),
-            SortStrategy::Relative(peer_uuid) => self
-                .messages
-                .binary_search_by(|msg| relative_cmp(msg, &new_msg, peer_uuid.as_str()))
-                .unwrap_or_else(|i| i),
-        };
-        self.messages.insert(idx, new_msg.clone());
+    fn add_message(&mut self, new_msg: ChatMessage) {
+        // TODO: push in DB instead
+        self.messages.push(new_msg.clone());
 
         let event = if self.localpeer.uuid == new_msg.sender_uuid {
             AppEvent::Sending(new_msg)
@@ -176,12 +177,11 @@ impl ChatModel {
         self.notify_observers(event);
     }
 
-    pub fn apply_ack(&mut self, target_uuid: &String, datetime: DateTime<Utc>) {
-
+    pub fn apply_ack(&mut self, message_uuid: &String) {
         let mut result = None;
-
+        let datetime = Utc::now();
         for message in &mut self.messages {
-            if message.uuid == *target_uuid {
+            if message.uuid == *message_uuid {
                 message.receive_time = Some(datetime);
                 result = Some(message.clone());
             }
@@ -192,9 +192,14 @@ impl ChatModel {
         } else {
             self.notify_observers(AppEvent::Error(format!(
                 "Messaging: received ack for unknown message {}",
-                target_uuid
+                message_uuid
             )));
         }
+    }
+
+    pub fn get_messages_filtered() {
+        // TODO: with DB
+        // you can test with main.rs at initialization
     }
 
     pub fn mark_as_sent(&mut self, target_uuid: &String) {
@@ -203,10 +208,10 @@ impl ChatModel {
             .iter()
             .position(|(_, s)| s == target_uuid)
         {
-            let (not_an_ack, _uuid) = self.pending_send_list.remove(pos);
+            let (msg_type, _uuid) = self.pending_send_list.remove(pos);
             // If it's an ack, nothing more to do
-            if !not_an_ack {
-                return
+            if msg_type == MessageType::Ack{
+                return;
             }
             let mut result = None;
 
@@ -224,9 +229,9 @@ impl ChatModel {
             }
         }
 
-        self.notify_observers(AppEvent::Error(
-            format!("Unable to apply sent success status ({})", target_uuid),
-        ));
-
-     }
+        self.notify_observers(AppEvent::Error(format!(
+            "Unable to apply sent success status ({})",
+            target_uuid
+        )));
+    }
 }

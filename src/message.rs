@@ -81,6 +81,33 @@ pub enum SortStrategy {
     Relative(String),
 }
 
+// Helper for a view having a list of messages
+pub fn insert_with_strategy(
+    messages: &mut Vec<ChatMessage>,
+    new_msg: ChatMessage,
+    strategy: SortStrategy,
+) {
+    let idx = match strategy {
+        SortStrategy::Standard => messages
+            .binary_search_by(|msg| standard_cmp(msg, &new_msg))
+            .unwrap_or_else(|i| i),
+        SortStrategy::Relative(peer_uuid) => messages
+            .binary_search_by(|msg| relative_cmp(msg, &new_msg, peer_uuid.as_str()))
+            .unwrap_or_else(|i| i),
+    };
+    messages.insert(idx, new_msg.clone());
+}
+
+// Helper for a view having a list of messages
+pub fn sort_with_strategy(messages: &mut Vec<ChatMessage>, strategy: SortStrategy) {
+    match strategy {
+        SortStrategy::Standard => messages.sort_by(standard_cmp),
+        SortStrategy::Relative(for_peer) => {
+            messages.sort_by(|a, b| relative_cmp(a, b, for_peer.as_str()))
+        }
+    }
+}
+
 pub fn standard_cmp(a: &ChatMessage, b: &ChatMessage) -> Ordering {
     let tx_a = a.send_time;
     let tx_b = b.send_time;

@@ -158,8 +158,8 @@ fn main() {
         local_peer.clone(),
         vec![distant_peer],
     )));
-    let network_engine = Engine::new(chat_model.clone());
-
+    let mut network_engine = Engine::new();
+    network_engine.add_observer(chat_model.clone());
     let screen = Arc::new(Mutex::new(TerminalScreen::new(args[1].clone(), 10)));
     chat_model.lock().unwrap().add_observer(screen.clone());
     chat_model.lock().unwrap().start(network_engine);
