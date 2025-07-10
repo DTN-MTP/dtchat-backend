@@ -42,8 +42,6 @@ pub struct ChatModel {
     pending_send_list: Vec<(MessageType, String)>,
 }
 
-
-
 impl EngineObserver for ChatModel {
     fn notify(&mut self, event: SocketEngineEvent) {
         match event {
@@ -120,7 +118,8 @@ impl ChatModel {
     pub fn send_to_peer(&mut self, text: &String, room: &String, endpoint: &Endpoint) {
         let chatmsg = ChatMessage::new_to_send(&self.localpeer.uuid, room, text);
         let sending_uuid = chatmsg.uuid.clone();
-        self.pending_send_list.push((MessageType::Text, sending_uuid.clone()));
+        self.pending_send_list
+            .push((MessageType::Text, sending_uuid.clone()));
         self.add_message(chatmsg.clone());
 
         if let Some(engine) = &mut self.network_engine {
@@ -149,7 +148,8 @@ impl ChatModel {
             self.localpeer.uuid.clone(),
             Utc::now().timestamp_millis(),
         );
-        self.pending_send_list.push((MessageType::Ack, proto_msg.uuid.clone()));
+        self.pending_send_list
+            .push((MessageType::Ack, proto_msg.uuid.clone()));
         if let Some(engine) = &mut self.network_engine {
             match proto_msg.encode_to_vec() {
                 // failure to send ack could be checked
@@ -210,7 +210,7 @@ impl ChatModel {
         {
             let (msg_type, _uuid) = self.pending_send_list.remove(pos);
             // If it's an ack, nothing more to do
-            if msg_type == MessageType::Ack{
+            if msg_type == MessageType::Ack {
                 return;
             }
             let mut result = None;

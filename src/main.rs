@@ -122,8 +122,12 @@ impl AppEventObserver for TerminalScreen {
 fn main() {
     // --- 1) parse CLI argument
     let args: Vec<String> = env::args().collect();
-    if args.len() != 3 {
-        eprintln!("Usage: {} <local-endpoint> <distant-endpoint>", args[0]);
+    let mut view_height: usize = 10;
+    if args.len() < 3 {
+        eprintln!(
+            "Usage: {} <local-endpoint> <distant-endpoint> [<view-height>, default: 10]",
+            args[0]
+        );
         std::process::exit(1);
     }
 
@@ -141,6 +145,16 @@ fn main() {
             std::process::exit(1);
         }
     };
+
+    if args.len() >= 4 {
+        match &args[3].parse() {
+            Ok(n) => view_height = *n,
+            _ => {
+                eprintln!("Error: '{}' is not a valid positive integer.", &args[3]);
+                std::process::exit(1);
+            }
+        };
+    }
 
     let local_peer = Peer {
         uuid: args[1].clone(),
@@ -160,7 +174,10 @@ fn main() {
     )));
     let mut network_engine = Engine::new();
     network_engine.add_observer(chat_model.clone());
-    let screen = Arc::new(Mutex::new(TerminalScreen::new(args[1].clone(), 10)));
+    let screen = Arc::new(Mutex::new(TerminalScreen::new(
+        args[1].clone(),
+        view_height,
+    )));
     chat_model.lock().unwrap().add_observer(screen.clone());
     chat_model.lock().unwrap().start(network_engine);
 
