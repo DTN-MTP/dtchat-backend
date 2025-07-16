@@ -25,7 +25,14 @@ pub fn generate_uuid() -> String {
 
 pub fn extract_message_id_from_data(data: &Vec<u8>) -> Option<String> {
     match ProtoMessage::decode_from_vec(data.clone()) {
-        Ok(proto_msg) => Some(proto_msg.uuid[..8].to_string()), // Premier 8 caractères
+        Ok(proto_msg) => {
+            let uuid = &proto_msg.uuid;
+            if uuid.len() >= 8 {
+                Some(uuid[..8].to_string())
+            } else {
+                Some(uuid.clone())
+            }
+        },
         Err(_) => None,
     }
 }

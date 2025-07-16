@@ -21,6 +21,15 @@ use chrono::{DateTime, Utc};
 use std::collections::VecDeque;
 use std::io::{self, Write};
 
+// Helper function to safely extract first 8 characters of a message ID
+fn safe_message_id_display(id: &str) -> &str {
+    if id.len() >= 8 {
+        &id[..8]
+    } else {
+        id
+    }
+}
+
 // Helper function to format endpoints in a readable way
 fn format_endpoint(endpoint: &Endpoint) -> String {
     match endpoint {
@@ -242,15 +251,19 @@ impl AppEventObserver for TerminalScreen {
                         DataEvent::Received { data, from } => {
                             let msg_id = extract_message_id_from_data(&data)
                                 .unwrap_or_else(|| "unknown".to_string());
+                            let display_id = safe_message_id_display(&msg_id);
                             (
                                 EventLevel::Info,
-                                format!("Received message {} from {}", &msg_id[..8], format_endpoint(&from)),
+                                format!("Received message {} from {}", display_id, format_endpoint(&from)),
                             )
                         },
-                        DataEvent::Sent { message_id, to, bytes_sent } => (
-                            EventLevel::Info,
-                            format!("Sent message {} to {} ({} bytes)", &message_id[..8], format_endpoint(&to), bytes_sent),
-                        ),
+                        DataEvent::Sent { message_id, to, bytes_sent } => {
+                            let display_id = safe_message_id_display(&message_id);
+                            (
+                                EventLevel::Info,
+                                format!("Sent message {} to {} ({} bytes)", display_id, format_endpoint(&to), bytes_sent),
+                            )
+                        },
                     },
                     NetworkEvent::Connection(connection_event) => match connection_event {
                         ConnectionEvent::ListenerStarted { endpoint } => (
@@ -298,7 +311,7 @@ impl AppEventObserver for TerminalScreen {
             }
             ChatAppEvent::Info(info_event) => match info_event {
                 ChatAppInfoEvent::Sending(chat_message) => {
-                    let msg_id = &chat_message.uuid[..8]; // Premier 8 caractères de l'UUID
+                    let msg_id = safe_message_id_display(&chat_message.uuid);
                     self.add_app_event(
                         EventLevel::Info,
                         format!("Sending message {}", msg_id),
@@ -321,7 +334,7 @@ impl AppEventObserver for TerminalScreen {
                     }
                 }
                 ChatAppInfoEvent::Received(chat_message) => {
-                    let msg_id = &chat_message.uuid[..8]; // Premier 8 caractères de l'UUID
+                    let msg_id = safe_message_id_display(&chat_message.uuid);
                     self.update_message_status(&chat_message.uuid, MessageStatus::Received);
                     self.add_app_event(EventLevel::Info, format!("Message {} received", msg_id));
                     if !self.messages.iter().any(|m| m.uuid == chat_message.uuid) {
@@ -333,7 +346,7 @@ impl AppEventObserver for TerminalScreen {
                 }
                 ChatAppInfoEvent::AckSent(uuid, _peer_uuid) => {
                     self.update_message_status(&uuid, MessageStatus::Acknowledged);
-                    let msg_id = &uuid[..8]; // Premier 8 caractères de l'UUID
+                    let msg_id = safe_message_id_display(&uuid);
                     self.add_app_event(
                         EventLevel::Info,
                         format!("Ack sent for message {}", msg_id),
@@ -341,7 +354,7 @@ impl AppEventObserver for TerminalScreen {
                 }
                 ChatAppInfoEvent::AckReceived(uuid, _peer_uuid) => {
                     self.update_message_status(&uuid, MessageStatus::Acknowledged);
-                    let msg_id = &uuid[..8]; // Premier 8 caractères de l'UUID
+                    let msg_id = safe_message_id_display(&uuid);
                     self.add_app_event(
                         EventLevel::Info,
                         format!("Ack received for message {}", msg_id),
@@ -349,7 +362,7 @@ impl AppEventObserver for TerminalScreen {
                 }
                 ChatAppInfoEvent::MessageStatusChanged(uuid, new_status) => {
                     self.update_message_status(&uuid, new_status);
-                    let msg_id = &uuid[..8]; // Premier 8 caractères de l'UUID
+                    let msg_id = safe_message_id_display(&uuid);
                     let status_text = match new_status {
                         MessageStatus::Sending => "sending",
                         MessageStatus::Sent => "sent",
