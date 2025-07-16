@@ -1,5 +1,5 @@
 use crate::message::ChatMessage;
-use socket_engine::event::{ErrorEventSocket, EventSocket};
+use socket_engine::event::{ConnectionEvent, DataEvent, ErrorEvent};
 
 #[derive(Clone, Debug)]
 pub enum ChatAppEvent {
@@ -16,16 +16,18 @@ pub enum ChatAppInfoEvent {
     Received(ChatMessage),
     AckSent(String, String),
     AckReceived(String, String),
+    MessageStatusChanged(String, crate::message::MessageStatus), // message_id, new_status
 }
 
 #[derive(Clone, Debug)]
 pub enum NetworkEvent {
-    Socket(EventSocket),
+    Data(DataEvent),
+    Connection(ConnectionEvent),
 }
 
 #[derive(Clone, Debug)]
 pub enum NetworkErrorEvent {
-    SocketError(ErrorEventSocket),
+    SocketError(ErrorEvent),
 }
 
 #[derive(Clone, Debug)]
@@ -37,6 +39,7 @@ pub enum ChatAppErrorEvent {
     PeerNotFound(String),
     NoEngineAttached,
     InternalError(String),
+    HostNotReachable(String), 
 }
 
 pub trait AppEventObserver: Send + Sync {

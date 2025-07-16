@@ -7,12 +7,12 @@ use crate::{
     proto::{ProtoMessage, TextMessage},
 };
 
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum MessageStatus {
     Sending,      // Message en cours d'envoi
     Sent,         // Message envoyé avec succès
     Acknowledged, // Message acquitté
-    Failed(),     // Message en erreur avec la raison
+    Failed,       // Message en erreur
     Received,     // Message reçu
 }
 
