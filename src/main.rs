@@ -5,18 +5,42 @@ use std::{
 
 use dtchat_backend::{
     dtchat::{ChatModel, Peer},
-    event::AppEventObserver,
-    message::ChatMessage,
+    event::{
+        AppEventObserver, ChatAppErrorEvent, ChatAppEvent, ChatAppInfoEvent, NetworkErrorEvent,
+        NetworkEvent,
+    },
+    message::{ChatMessage, MessageStatus},
 };
-use socket_engine::{endpoint::Endpoint, engine::Engine};
+use socket_engine::{
+    endpoint::Endpoint,
+    engine::Engine,
+    event::{EventSocket, GeneralSocketEvent, TcpEvent, UdpEvent},
+};
 
+use chrono::{DateTime, Utc};
 use std::collections::VecDeque;
 use std::io::{self, Write};
+
+#[derive(Clone, Debug)]
+pub enum EventLevel {
+    Info,    // Informations normales
+    Debug,   // Détails techniques (réseau)
+    Warning, // Problèmes non critiques
+    Error,   // Erreurs
+}
+
+#[derive(Clone, Debug)]
+pub struct EventWithLevel {
+    level: EventLevel,
+    message: String,
+    timestamp: DateTime<Utc>,
+}
 
 pub struct TerminalScreen {
     local_uuid: String,
     messages: VecDeque<ChatMessage>,
-    status: String,
+    network_events: VecDeque<EventWithLevel>, // Événements réseau
+    app_events: VecDeque<EventWithLevel>,     // Événements d'application
     max_lines: usize,
     input_line: String,
 }
@@ -26,7 +50,8 @@ impl TerminalScreen {
         Self {
             local_uuid,
             messages: VecDeque::new(),
-            status: "Ready".to_string(),
+            network_events: VecDeque::new(),
+            app_events: VecDeque::new(),
             max_lines,
             input_line: String::new(),
         }
@@ -36,85 +61,309 @@ impl TerminalScreen {
         self.input_line = input;
     }
 
+    fn add_network_event(&mut self, level: EventLevel, message: String) {
+        let event = EventWithLevel {
+            level,
+            message,
+            timestamp: Utc::now(),
+        };
+        self.network_events.push_back(event);
+
+        // Garder seulement les 6 derniers événements réseau
+        if self.network_events.len() > 10 {
+            self.network_events.pop_front();
+        }
+    }
+
+    fn add_app_event(&mut self, level: EventLevel, message: String) {
+        let event = EventWithLevel {
+            level,
+            message,
+            timestamp: Utc::now(),
+        };
+        self.app_events.push_back(event);
+
+        // Garder seulement les 6 derniers événements d'application
+        if self.app_events.len() > 10 {
+            self.app_events.pop_front();
+        }
+    }
+
+    fn update_message_status(&mut self, msg_id: &str, new_status: MessageStatus) {
+        for m in &mut self.messages {
+            if m.uuid == msg_id || m.uuid.starts_with(msg_id) {
+                m.status = new_status.clone();
+            }
+        }
+    }
+
     pub fn render(&self) {
         // Clear screen and move cursor to top
         print!("\x1b[2J\x1b[H");
 
-        // Print all messages
-        for msg in &self.messages {
-            if msg.sender_uuid == self.local_uuid {
-                print!("[>|");
-            } else {
-                print!("[<|");
-            }
-            let formated_rx = if let Some(datetime) = msg.receive_time {
-                datetime.format("%H:%M:%S").to_string()
-            } else {
-                "??".to_string()
-            };
-            let formated_tx = if let Some(datetime) = msg.send_completed {
-                datetime.format("%H:%M:%S").to_string()
-            } else {
-                "??".to_string()
-            };
+        // Print header with connection info
+        println!("\x1b[1;96m╔══════════════════════════════════════════════════════════════════════════════╗");
+        println!(
+            "\x1b[1;96m║                       DTChat - {:<40} ║",
+            self.local_uuid.to_uppercase()
+        );
+        println!("\x1b[1;96m╚══════════════════════════════════════════════════════════════════════════════╝\x1b[0m");
+        println!();
 
-            print!("{}", formated_tx);
-            print!("|{}] ", formated_rx);
-            println!("{}", msg.text);
+        // Layout en deux colonnes : Messages | Events
+        // === SECTION MESSAGES (Colonne gauche) ===
+        println!("\x1b[1;37mMessages ({}):\x1b[0m", self.messages.len());
+
+        if self.messages.is_empty() {
+            println!("  \x1b[90mEmpty chat\x1b[0m");
+        } else {
+            // Afficher les 8 derniers messages
+            for msg in self.messages.iter().rev().take(8).rev() {
+                let (status_indicator, status_color) = match &msg.status {
+                    MessageStatus::Failed() => ("FAILED", "\x1b[31m"),
+                    MessageStatus::Acknowledged => ("ACKED", "\x1b[32m"),
+                    MessageStatus::Sent => ("SENT", "\x1b[33m"),
+                    MessageStatus::Sending => ("SENDING", "\x1b[90m"),
+                    MessageStatus::Received => ("RECEIVED", "\x1b[34m"),
+                };
+
+                // Nouveau format : [<STATUS>] [acked_time:send_time] <message>
+                let acked_time_str = match msg.send_completed {
+                    Some(t) => t.format("%H:%M:%S").to_string(),
+                    None => String::new(),
+                };
+       
+                let send_time_str: String = msg.send_time.format("%H:%M:%S").to_string();
+
+                let time_display = format!("[{}:{}]", acked_time_str, send_time_str);
+
+                let msg_color = if msg.sender_uuid == self.local_uuid {
+                    "\x1b[37m"
+                } else {
+                    "\x1b[34m"
+                };
+
+                let display_text = if msg.text.len() > 40 {
+                    format!("{}...", &msg.text[..37])
+                } else {
+                    msg.text.clone()
+                };
+
+                println!(
+                    "  {}[{}] {} {}{}\x1b[0m",
+                    status_color, status_indicator, time_display, msg_color, display_text
+                );
+            }
         }
 
-        // Fill remaining space if needed
-        let remaining_lines = self.max_lines.saturating_sub(self.messages.len());
+        println!();
+
+        // === SECTION ÉVÉNEMENTS RÉSEAU ===
+        println!(
+            "\x1b[1;37mNetwork Events ({}):\x1b[0m",
+            self.network_events.len()
+        );
+
+        if self.network_events.is_empty() {
+            println!("  \x1b[90mAucun événement réseau\x1b[0m");
+        } else {
+            // Afficher les 6 derniers événements réseau
+            for event in self.network_events.iter().rev().take(6).rev() {
+                let (level_indicator, color) = match event.level {
+                    EventLevel::Info => ("[INFO ]", "\x1b[36m"),    // Cyan
+                    EventLevel::Debug => ("[DEBUG]", "\x1b[90m"),   // Gris
+                    EventLevel::Warning => ("[WARN ]", "\x1b[33m"), // Jaune
+                    EventLevel::Error => ("[ERROR]", "\x1b[31m"),   // Rouge
+                };
+
+                let time_str = event.timestamp.format("%H:%M:%S").to_string();
+
+                println!(
+                    "  {}{} [{}] {}\x1b[0m",
+                    color, level_indicator, time_str, event.message
+                );
+            }
+        }
+
+        println!();
+
+        // === SECTION ÉVÉNEMENTS D'APPLICATION ===
+        println!("\x1b[1;37mApp Events ({}):\x1b[0m", self.app_events.len());
+
+        if self.app_events.is_empty() {
+            println!("  \x1b[90mAucun événement d'application\x1b[0m");
+        } else {
+            // Afficher les 6 derniers événements d'application
+            for event in self.app_events.iter().rev().take(6).rev() {
+                let (level_indicator, color) = match event.level {
+                    EventLevel::Info => ("[INFO ]", "\x1b[36m"),    // Cyan
+                    EventLevel::Debug => ("[DEBUG]", "\x1b[90m"),   // Gris
+                    EventLevel::Warning => ("[WARN ]", "\x1b[33m"), // Jaune
+                    EventLevel::Error => ("[ERROR]", "\x1b[31m"),   // Rouge
+                };
+
+                let time_str = event.timestamp.format("%H:%M:%S").to_string();
+
+                println!(
+                    "  {}{} [{}] {}\x1b[0m",
+                    color, level_indicator, time_str, event.message
+                );
+            }
+        }
+
+        // Calculer l'espace restant et le remplir
+        let used_lines = 8 + // Header + separators 
+            self.messages.len().min(8).max(1) + 
+            self.network_events.len().min(6).max(1) + 
+            self.app_events.len().min(6).max(1);
+
+        let remaining_lines = self.max_lines.saturating_sub(used_lines + 2); // +2 pour input
         for _ in 0..remaining_lines {
             println!();
         }
-        // Print status line
 
-        print!("Status: {}", self.status);
-        println!();
-        // Print input line at bottom
-        print!("> {}", self.input_line);
+        // === LIGNE D'INPUT EN BAS ===
+        println!("\x1b[1;96m─────────────────────────────────────────────────────────────────────────────\x1b[0m");
+        print!("\x1b[1;37m> \x1b[0m{}", self.input_line);
 
         io::stdout().flush().unwrap();
     }
 }
 
 impl AppEventObserver for TerminalScreen {
-    fn on_event(&mut self, event: dtchat_backend::event::AppEvent) {
+    fn on_event(&mut self, event: ChatAppEvent) {
         match event {
-            dtchat_backend::event::AppEvent::Error(err) => self.status = err,
-            dtchat_backend::event::AppEvent::Sending(chat_message) => {
-                self.messages.push_back(chat_message);
-                // Keep only max_lines messages
-                if self.messages.len() > self.max_lines {
-                    self.messages.pop_front();
-                }
-                self.status = "message sent".to_string()
+            ChatAppEvent::SocketEngineInfo(info_event) => {
+                let (level, event_text) = match info_event {
+                    NetworkEvent::Socket(socket_info) => match socket_info {
+                        EventSocket::Tcp(tcp_event) => match tcp_event {
+                            TcpEvent::ConnectionEstablished(client_id) => (
+                                EventLevel::Debug,
+                                format!("TCP connection established (client: {})", client_id),
+                            ),
+                            TcpEvent::ListenerStarted(addr) => (
+                                EventLevel::Info,
+                                format!("Listening on TCP({})", addr),
+                            ),
+                            TcpEvent::ConnectionClosed(client_id) => (
+                                EventLevel::Debug,
+                                format!("TCP connection closed (client: {})", client_id)
+                            ),
+                        },
+                        EventSocket::Udp(udp_event) => match udp_event {
+                            UdpEvent::PacketSizeSent(size) => {
+                                (EventLevel::Debug, format!("UDP {} bytes sent", size))
+                            }
+                            UdpEvent::PacketSizeReceived(size) => {
+                                (EventLevel::Debug, format!("UDP {} bytes received", size))
+                            }
+                        },
+                        EventSocket::General(general_event) => match general_event {
+                            GeneralSocketEvent::DataReceived(_, endpoint) => (
+                                EventLevel::Info,
+                                format!("Data received from {:?}", endpoint),
+                            ),
+                            GeneralSocketEvent::DataSent(data_uuid, endpoint) => (
+                                EventLevel::Info,
+                                format!("Data {} sent to {:?}", &data_uuid[..8], endpoint),
+                            ),
+                        },
+                    },
+        
+                };
+
+                self.add_network_event(level, event_text);
             }
-            dtchat_backend::event::AppEvent::Received(chat_message) => {
-                self.messages.push_back(chat_message);
-                // Keep only max_lines messages
-                if self.messages.len() > self.max_lines {
-                    self.messages.pop_front();
-                }
-                self.status = "message received".to_string()
+            ChatAppEvent::SocketEngineError(error_event) => {
+                let error_text = match error_event {
+                    NetworkErrorEvent::SocketError(socket_error) => {
+                        format!("Socket error: {:?}", socket_error)
+                    }
+                };
+                self.add_network_event(EventLevel::Error, error_text);
             }
-            dtchat_backend::event::AppEvent::Acked(ack_message) => {
-                for m in &mut self.messages {
-                    if m.uuid == ack_message.uuid {
-                        m.receive_time = ack_message.receive_time;
+            ChatAppEvent::Info(info_event) => match info_event {
+                ChatAppInfoEvent::Sending(chat_message) => {
+                    let msg_id = &chat_message.uuid[..8]; // Premier 8 caractères de l'UUID
+                    self.add_app_event(
+                        EventLevel::Info,
+                        format!("Sending message with ID {}", msg_id),
+                    );
+
+                    if !self.messages.iter().any(|m| m.uuid == chat_message.uuid) {
+                        self.messages.push_back(chat_message);
+                        if self.messages.len() > self.max_lines {
+                            self.messages.pop_front();
+                        }
                     }
                 }
-                self.status = "message sent received".to_string()
-            }
-            dtchat_backend::event::AppEvent::Sent(sent_message) => {
-                for m in &mut self.messages {
-                    if m.uuid == sent_message.uuid {
-                        m.send_completed = sent_message.send_completed;
+                ChatAppInfoEvent::Sent(sent_message) => {
+                    self.update_message_status(&sent_message.uuid, MessageStatus::Sent);
+                    for m in &mut self.messages {
+                        if m.uuid == sent_message.uuid {
+                            m.send_completed = sent_message.send_completed;
+                            break;
+                        }
                     }
                 }
+                ChatAppInfoEvent::Received(chat_message) => {
+                    let msg_id = &chat_message.uuid[..8]; // Premier 8 caractères de l'UUID
+                    self.update_message_status(&chat_message.uuid, MessageStatus::Received);
+                    self.add_app_event(EventLevel::Info, format!("Message {} received", msg_id));
+                    if !self.messages.iter().any(|m| m.uuid == chat_message.uuid) {
+                        self.messages.push_back(chat_message);
+                        if self.messages.len() > self.max_lines {
+                            self.messages.pop_front();
+                        }
+                    }
+                }
+                ChatAppInfoEvent::AckSent(uuid, peer_uuid) => {
+                    self.update_message_status(&uuid, MessageStatus::Acknowledged);
+                    let msg_id = &uuid[..8]; // Premier 8 caractères de l'UUID
+                    self.add_app_event(
+                        EventLevel::Info,
+                        format!("Ack sent for message {} to peer {}", msg_id, peer_uuid),
+                    );
+                }
+                ChatAppInfoEvent::AckReceived(uuid, peer_uuid) => {
+                    self.update_message_status(&uuid, MessageStatus::Acknowledged);
+                    let msg_id = &uuid[..8]; // Premier 8 caractères de l'UUID
+                    self.add_app_event(
+                        EventLevel::Info,
+                        format!(
+                            "Ack received for message {} from peer {}",
+                            msg_id, peer_uuid
+                        ),
+                    );
+                }
+            },
+            ChatAppEvent::Error(error_event) => {
+                let error_text = match error_event {
+                    ChatAppErrorEvent::ProtocolDecode(details) => {
+                        format!("Protocol decode error: {}", details)
+                    }
+                    ChatAppErrorEvent::ProtocolEncode(details) => {
+                        format!("Encoding error: {}", details)
+                    }
+                    ChatAppErrorEvent::InvalidMessage(details) => {
+                        format!("Invalid message: {}", details)
+                    }
+                    ChatAppErrorEvent::MessageNotFound(msg_id) => {
+                        format!("Message {} not found", msg_id)
+                    }
+                    ChatAppErrorEvent::PeerNotFound(peer_id) => {
+                        format!("Peer {} not found", peer_id)
+                    }
+                    ChatAppErrorEvent::NoEngineAttached => "No engine attached".to_string(),
+                    ChatAppErrorEvent::InternalError(details) => {
+                        format!("Internal error: {}", details)
+                    }
+                };
+
+                self.add_network_event(EventLevel::Error, error_text);
             }
         }
+
         self.render();
     }
 }

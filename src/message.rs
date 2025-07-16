@@ -8,6 +8,15 @@ use crate::{
 };
 
 #[derive(Clone, Debug)]
+pub enum MessageStatus {
+    Sending,      // Message en cours d'envoi
+    Sent,         // Message envoyé avec succès
+    Acknowledged, // Message acquitté
+    Failed(),     // Message en erreur avec la raison
+    Received,     // Message reçu
+}
+
+#[derive(Clone, Debug)]
 pub struct ChatMessage {
     pub uuid: String,
     pub sender_uuid: String,
@@ -17,6 +26,7 @@ pub struct ChatMessage {
     pub send_completed: Option<DateTime<Utc>>,
     pub predicted_arrival_time: Option<DateTime<Utc>>,
     pub receive_time: Option<DateTime<Utc>>,
+    pub status: MessageStatus,
 }
 
 fn get_timestamps_frm_opt(datetime_opt: Option<DateTime<Utc>>) -> Option<i64> {
@@ -37,6 +47,7 @@ impl ChatMessage {
             send_completed: None,
             predicted_arrival_time: None,
             receive_time: None,
+            status: MessageStatus::Sending,
         }
     }
 
@@ -51,6 +62,7 @@ impl ChatMessage {
                 send_completed: Some(datetime),
                 predicted_arrival_time: None,
                 receive_time: Some(Utc::now()),
+                status: MessageStatus::Received,
             });
         }
         None
@@ -81,7 +93,6 @@ pub enum SortStrategy {
     Relative(String),
 }
 
-// Helper for a view having a list of messages
 pub fn insert_with_strategy(
     messages: &mut Vec<ChatMessage>,
     new_msg: ChatMessage,
