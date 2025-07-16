@@ -111,12 +111,7 @@ impl TerminalScreen {
         print!("\x1b[2J\x1b[H");
 
         // Print header with connection info
-        println!("\x1b[1;96m╔══════════════════════════════════════════════════════════════════════════════╗");
-        println!(
-            "\x1b[1;96m║                       DTChat - {:<40} ║",
-            self.local_uuid.to_uppercase()
-        );
-        println!("\x1b[1;96m╚══════════════════════════════════════════════════════════════════════════════╝\x1b[0m");
+        println!("\x1b[1;96m=== DTChat - {} ===\x1b[0m", self.local_uuid.to_uppercase());
         println!();
 
         // Layout en deux colonnes : Messages | Events
