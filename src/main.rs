@@ -4,7 +4,7 @@ use std::{
 };
 
 use dtchat_backend::{
-    dtchat::{ChatModel, Peer},
+    dtchat::{ChatModel, Peer, extract_message_id_from_data},
     event::{
         AppEventObserver, ChatAppErrorEvent, ChatAppEvent, ChatAppInfoEvent, NetworkErrorEvent,
         NetworkEvent,
@@ -14,12 +14,21 @@ use dtchat_backend::{
 use socket_engine::{
     endpoint::Endpoint,
     engine::Engine,
-    event::{EventSocket, GeneralSocketEvent, TcpEvent, UdpEvent},
+    event::{ConnectionEvent, DataEvent},
 };
 
 use chrono::{DateTime, Utc};
 use std::collections::VecDeque;
 use std::io::{self, Write};
+
+// Helper function to format endpoints in a readable way
+fn format_endpoint(endpoint: &Endpoint) -> String {
+    match endpoint {
+        Endpoint::Tcp(addr) => format!("TCP {}", addr),
+        Endpoint::Udp(addr) => format!("UDP {}", addr),
+        Endpoint::Bp(addr) => format!("BP {}", addr),
+    }
+}
 
 #[derive(Clone, Debug)]
 pub enum EventLevel {
@@ -92,7 +101,7 @@ impl TerminalScreen {
     fn update_message_status(&mut self, msg_id: &str, new_status: MessageStatus) {
         for m in &mut self.messages {
             if m.uuid == msg_id || m.uuid.starts_with(msg_id) {
-                m.status = new_status.clone();
+                m.status = new_status;
             }
         }
     }
@@ -120,7 +129,7 @@ impl TerminalScreen {
             // Afficher les 8 derniers messages
             for msg in self.messages.iter().rev().take(8).rev() {
                 let (status_indicator, status_color) = match &msg.status {
-                    MessageStatus::Failed() => ("FAILED", "\x1b[31m"),
+                    MessageStatus::Failed => ("FAILED", "\x1b[31m"),
                     MessageStatus::Acknowledged => ("ACKED", "\x1b[32m"),
                     MessageStatus::Sent => ("SENT", "\x1b[33m"),
                     MessageStatus::Sending => ("SENDING", "\x1b[90m"),
@@ -211,8 +220,7 @@ impl TerminalScreen {
             }
         }
 
-        // Calculer l'espace restant et le remplir
-        let used_lines = 8 + // Header + separators 
+        let used_lines = 8 + 
             self.messages.len().min(8).max(1) + 
             self.network_events.len().min(6).max(1) + 
             self.app_events.len().min(6).max(1);
@@ -235,41 +243,52 @@ impl AppEventObserver for TerminalScreen {
         match event {
             ChatAppEvent::SocketEngineInfo(info_event) => {
                 let (level, event_text) = match info_event {
-                    NetworkEvent::Socket(socket_info) => match socket_info {
-                        EventSocket::Tcp(tcp_event) => match tcp_event {
-                            TcpEvent::ConnectionEstablished(client_id) => (
-                                EventLevel::Debug,
-                                format!("TCP connection established (client: {})", client_id),
-                            ),
-                            TcpEvent::ListenerStarted(addr) => (
+                    NetworkEvent::Data(data_event) => match data_event {
+                        DataEvent::Received { data, from } => {
+                            let msg_id = extract_message_id_from_data(&data)
+                                .unwrap_or_else(|| "unknown".to_string());
+                            (
                                 EventLevel::Info,
-                                format!("Listening on TCP({})", addr),
-                            ),
-                            TcpEvent::ConnectionClosed(client_id) => (
-                                EventLevel::Debug,
-                                format!("TCP connection closed (client: {})", client_id)
-                            ),
+                                format!("Received message {} from {}", &msg_id[..8], format_endpoint(&from)),
+                            )
                         },
-                        EventSocket::Udp(udp_event) => match udp_event {
-                            UdpEvent::PacketSizeSent(size) => {
-                                (EventLevel::Debug, format!("UDP {} bytes sent", size))
-                            }
-                            UdpEvent::PacketSizeReceived(size) => {
-                                (EventLevel::Debug, format!("UDP {} bytes received", size))
-                            }
+                        DataEvent::Sent { message_id, to, bytes_sent } => (
+                            EventLevel::Info,
+                            format!("Sent message {} to {} ({} bytes)", &message_id[..8], format_endpoint(&to), bytes_sent),
+                        ),
+                    },
+                    NetworkEvent::Connection(connection_event) => match connection_event {
+                        ConnectionEvent::ListenerStarted { endpoint } => (
+                            EventLevel::Info,
+                            format!("Listening on {}", format_endpoint(&endpoint)),
+                        ),
+                        ConnectionEvent::Established { remote } => {
+                            // Extraire seulement l'adresse IP:port du remote endpoint
+                            let client_addr = match remote {
+                                Endpoint::Tcp(addr) => addr,
+                                Endpoint::Udp(addr) => addr,
+                                Endpoint::Bp(addr) => addr,
+                            };
+                            (
+                                EventLevel::Debug,
+                                format!("Connection established (client: {})", client_addr),
+                            )
                         },
-                        EventSocket::General(general_event) => match general_event {
-                            GeneralSocketEvent::DataReceived(_, endpoint) => (
-                                EventLevel::Info,
-                                format!("Data received from {:?}", endpoint),
-                            ),
-                            GeneralSocketEvent::DataSent(data_uuid, endpoint) => (
-                                EventLevel::Info,
-                                format!("Data {} sent to {:?}", &data_uuid[..8], endpoint),
-                            ),
+                        ConnectionEvent::Closed { remote } => {
+                            let message = match remote {
+                                Some(remote_ep) => {
+                                    let client_addr = match remote_ep {
+                                        Endpoint::Tcp(addr) => addr,
+                                        Endpoint::Udp(addr) => addr,
+                                        Endpoint::Bp(addr) => addr,
+                                    };
+                                    format!("Connection closed (client: {})", client_addr)
+                                },
+                                None => "Connection closed (no client info)".to_string(),
+                            };
+                            (EventLevel::Debug, message)
                         },
                     },
-        
                 };
 
                 self.add_network_event(level, event_text);
@@ -287,7 +306,7 @@ impl AppEventObserver for TerminalScreen {
                     let msg_id = &chat_message.uuid[..8]; // Premier 8 caractères de l'UUID
                     self.add_app_event(
                         EventLevel::Info,
-                        format!("Sending message with ID {}", msg_id),
+                        format!("Sending message {}", msg_id),
                     );
 
                     if !self.messages.iter().any(|m| m.uuid == chat_message.uuid) {
@@ -317,50 +336,65 @@ impl AppEventObserver for TerminalScreen {
                         }
                     }
                 }
-                ChatAppInfoEvent::AckSent(uuid, peer_uuid) => {
+                ChatAppInfoEvent::AckSent(uuid, _peer_uuid) => {
                     self.update_message_status(&uuid, MessageStatus::Acknowledged);
                     let msg_id = &uuid[..8]; // Premier 8 caractères de l'UUID
                     self.add_app_event(
                         EventLevel::Info,
-                        format!("Ack sent for message {} to peer {}", msg_id, peer_uuid),
+                        format!("Ack sent for message {}", msg_id),
                     );
                 }
-                ChatAppInfoEvent::AckReceived(uuid, peer_uuid) => {
+                ChatAppInfoEvent::AckReceived(uuid, _peer_uuid) => {
                     self.update_message_status(&uuid, MessageStatus::Acknowledged);
                     let msg_id = &uuid[..8]; // Premier 8 caractères de l'UUID
                     self.add_app_event(
                         EventLevel::Info,
-                        format!(
-                            "Ack received for message {} from peer {}",
-                            msg_id, peer_uuid
-                        ),
+                        format!("Ack received for message {}", msg_id),
+                    );
+                }
+                ChatAppInfoEvent::MessageStatusChanged(uuid, new_status) => {
+                    self.update_message_status(&uuid, new_status);
+                    let msg_id = &uuid[..8]; // Premier 8 caractères de l'UUID
+                    let status_text = match new_status {
+                        MessageStatus::Sending => "sending",
+                        MessageStatus::Sent => "sent",
+                        MessageStatus::Received => "received", 
+                        MessageStatus::Acknowledged => "acknowledged",
+                        MessageStatus::Failed => "failed",
+                    };
+                    self.add_app_event(
+                        EventLevel::Info,
+                        format!("Message {} status changed to {}", msg_id, status_text),
                     );
                 }
             },
             ChatAppEvent::Error(error_event) => {
                 let error_text = match error_event {
                     ChatAppErrorEvent::ProtocolDecode(details) => {
-                        format!("Protocol decode error: {}", details)
+                        format!("Failed to decode protobuf: {}", details)
                     }
                     ChatAppErrorEvent::ProtocolEncode(details) => {
-                        format!("Encoding error: {}", details)
+                        format!("Failed to encode protobuf: {}", details)
                     }
                     ChatAppErrorEvent::InvalidMessage(details) => {
-                        format!("Invalid message: {}", details)
+                        format!("Invalid message format: {}", details)
                     }
                     ChatAppErrorEvent::MessageNotFound(msg_id) => {
-                        format!("Message {} not found", msg_id)
+                        format!("Message {} not found in history", msg_id)
                     }
                     ChatAppErrorEvent::PeerNotFound(peer_id) => {
-                        format!("Peer {} not found", peer_id)
+                        format!("Unknown peer: {}", peer_id)
                     }
-                    ChatAppErrorEvent::NoEngineAttached => "No engine attached".to_string(),
+                    ChatAppErrorEvent::NoEngineAttached => "Network engine not available".to_string(),
                     ChatAppErrorEvent::InternalError(details) => {
                         format!("Internal error: {}", details)
                     }
+                    ChatAppErrorEvent::HostNotReachable(endpoint) => {
+                        format!("Host not reachable: {}", endpoint)
+                    }
                 };
 
-                self.add_network_event(EventLevel::Error, error_text);
+                self.add_app_event(EventLevel::Error, error_text);
             }
         }
 
@@ -430,7 +464,6 @@ fn main() {
     chat_model.lock().unwrap().add_observer(screen.clone());
     chat_model.lock().unwrap().start(network_engine);
 
-    // Main input loop
     loop {
         screen.lock().unwrap().render();
 

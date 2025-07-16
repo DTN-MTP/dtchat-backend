@@ -5,8 +5,7 @@ use socket_engine::{
     endpoint::Endpoint,
     engine::Engine,
     event::{
-        EngineObserver, ErrorEventSocket, EventSocket, GeneralSocketEvent, SocketEngineEvent,
-        TcpErrorEvent, TcpEvent, UdpEvent,
+        EngineObserver, ConnectionEvent, DataEvent, ErrorEvent, SocketEngineEvent,
     },
 };
 use uuid::Uuid;
@@ -22,6 +21,13 @@ use crate::{
 
 pub fn generate_uuid() -> String {
     Uuid::new_v4().to_string()
+}
+
+pub fn extract_message_id_from_data(data: &Vec<u8>) -> Option<String> {
+    match ProtoMessage::decode_from_vec(data.clone()) {
+        Ok(proto_msg) => Some(proto_msg.uuid[..8].to_string()), // Premier 8 caractères
+        Err(_) => None,
+    }
 }
 
 #[derive(Clone)]
@@ -50,101 +56,101 @@ pub struct ChatModel {
 impl EngineObserver for ChatModel {
     fn on_engine_event(&mut self, event: SocketEngineEvent) {
         match event {
-            SocketEngineEvent::Info(socket_event) => match socket_event {
-                EventSocket::General(general_info) => match general_info {
-                    GeneralSocketEvent::DataReceived(bytes, source_endpoint) => {
-                        // Retransmettre l'événement réseau aux observateurs
-                        self.notify_observers(ChatAppEvent::SocketEngineInfo(
-                            NetworkEvent::Socket(EventSocket::General(
-                                GeneralSocketEvent::DataReceived(bytes.clone(), source_endpoint.clone()),
-                            )),
-                        ));
+            SocketEngineEvent::Data(data_event) => match data_event {
+                DataEvent::Received { data, from } => {
+                    let real_peer_endpoint = self.map_to_real_peer_endpoint(&from);
+                    
+                    self.notify_observers(ChatAppEvent::SocketEngineInfo(
+                        NetworkEvent::Data(DataEvent::Received {
+                            data: data.clone(),
+                            from: real_peer_endpoint,
+                        }),
+                    ));
 
-                        let decode_res = ProtoMessage::decode_from_vec(bytes);
+                    let decode_res = ProtoMessage::decode_from_vec(data);
 
-                        match decode_res {
-                            Ok(proto_msg) => {
-                                self.treat_proto_message(proto_msg, source_endpoint);
-                            }
-                            Err(decode_err) => {
-                                self.notify_observers(ChatAppEvent::Error(
-                                    ChatAppErrorEvent::ProtocolDecode(format!(
-                                        "Protobuf decode error: {}",
-                                        decode_err
-                                    )),
-                                ));
-                            }
-                        };
-                    }
-                    GeneralSocketEvent::DataSent(uuid, endpoint) => {
-                        let uuid_clone = uuid.clone();
-                        self.notify_observers(ChatAppEvent::SocketEngineInfo(
-                            NetworkEvent::Socket(EventSocket::General(
-                                GeneralSocketEvent::DataSent(uuid, endpoint),
-                            )),
-                        ));
+                    match decode_res {
+                        Ok(proto_msg) => {
+                            self.treat_proto_message(proto_msg, from);
+                        }
+                        Err(decode_err) => {
+                            self.notify_observers(ChatAppEvent::Error(
+                                ChatAppErrorEvent::ProtocolDecode(format!(
+                                    "Protobuf decode error: {}",
+                                    decode_err
+                                )),
+                            ));
+                        }
+                    };
+                }
+                DataEvent::Sent { message_id, to, bytes_sent } => {
+                    self.notify_observers(ChatAppEvent::SocketEngineInfo(
+                        NetworkEvent::Data(DataEvent::Sent {
+                            message_id: message_id.clone(),
+                            to,
+                            bytes_sent,
+                        }),
+                    ));
 
-                        self.mark_as_sent(&uuid_clone);
-                    }
-                },
-                EventSocket::Tcp(tcp_event) => match tcp_event {
-                    TcpEvent::ListenerStarted(addr) => {
-                        self.notify_observers(ChatAppEvent::SocketEngineInfo(
-                            NetworkEvent::Socket(EventSocket::Tcp(TcpEvent::ListenerStarted(
-                                addr,
-                            ))),
-                        ));
-                    }
-                    TcpEvent::ConnectionEstablished(addr) => {
-                        self.notify_observers(ChatAppEvent::SocketEngineInfo(
-                            NetworkEvent::Socket(EventSocket::Tcp(TcpEvent::ConnectionEstablished(
-                                addr,
-                            ))),
-                        ));
-                    }
-                    TcpEvent::ConnectionClosed(addr) => {
-                        self.notify_observers(ChatAppEvent::SocketEngineInfo(
-                            NetworkEvent::Socket(EventSocket::Tcp(TcpEvent::ConnectionClosed(
-                                addr,
-                            ))),
-                        ));
-                    }
-                },
-                EventSocket::Udp(udp_event) => match udp_event {
-                    UdpEvent::PacketSizeSent(size) => {
-                        self.notify_observers(ChatAppEvent::SocketEngineInfo(
-                            NetworkEvent::Socket(EventSocket::Udp(UdpEvent::PacketSizeSent(size))),
-                        ));
-                    }
-                    UdpEvent::PacketSizeReceived(size) => {
-                        self.notify_observers(ChatAppEvent::SocketEngineInfo(NetworkEvent::Socket(
-                            EventSocket::Udp(UdpEvent::PacketSizeReceived(size)),
-                        )))
-                    }
-                },
+                    self.mark_as_sent(&message_id);
+                }
             },
-            SocketEngineEvent::Error(error_event) => match error_event {
-                ErrorEventSocket::General(general_error) => {
-                    self.notify_observers(ChatAppEvent::SocketEngineError(
-                        NetworkErrorEvent::SocketError(ErrorEventSocket::General(general_error)),
+            SocketEngineEvent::Connection(connection_event) => match connection_event {
+                ConnectionEvent::ListenerStarted { endpoint } => {
+                    self.notify_observers(ChatAppEvent::SocketEngineInfo(
+                        NetworkEvent::Connection(ConnectionEvent::ListenerStarted {
+                            endpoint,
+                        }),
                     ));
                 }
-                ErrorEventSocket::Tcp(tcp_error) => match tcp_error {
-                    TcpErrorEvent::ConnectionRefused(addr, endpoint) => {
-                        self.notify_observers(ChatAppEvent::SocketEngineError(
-                            NetworkErrorEvent::SocketError(ErrorEventSocket::Tcp(
-                                TcpErrorEvent::ConnectionRefused(addr, endpoint),
-                            )),
-                        ));
-                    }
-                    TcpErrorEvent::ConnectionTimeout(addr, endpoint) => {
-                        self.notify_observers(ChatAppEvent::SocketEngineError(
-                            NetworkErrorEvent::SocketError(ErrorEventSocket::Tcp(
-                                TcpErrorEvent::ConnectionTimeout(addr, endpoint),
-                            )),
-                        ));
-                    }
-                },
+                ConnectionEvent::Established { remote } => {
+                    self.notify_observers(ChatAppEvent::SocketEngineInfo(
+                        NetworkEvent::Connection(ConnectionEvent::Established {
+                            remote: remote.clone(),
+                        }),
+                    ));
+
+                    self.mark_messages_as_successfully_sent();
+                }
+                ConnectionEvent::Closed { remote } => {
+                    self.notify_observers(ChatAppEvent::SocketEngineInfo(
+                        NetworkEvent::Connection(ConnectionEvent::Closed {
+                            remote: remote.clone(),
+                        }),
+                    ));
+                }
+            },
+            SocketEngineEvent::Error(error_event) => match &error_event {
+                ErrorEvent::ConnectionFailed { endpoint, .. } => {
+                    self.notify_observers(ChatAppEvent::SocketEngineError(
+                        NetworkErrorEvent::SocketError(error_event.clone()),
+                    ));
+                    
+                    self.notify_observers(ChatAppEvent::Error(
+                        ChatAppErrorEvent::HostNotReachable(format!("{}", endpoint))
+                    ));
+                    
+                    self.mark_pending_messages_as_failed(&endpoint);
+                }
+                ErrorEvent::SendFailed { endpoint, .. } => {
+                    self.notify_observers(ChatAppEvent::SocketEngineError(
+                        NetworkErrorEvent::SocketError(error_event.clone()),
+                    ));
+                    
+                    self.mark_pending_messages_as_failed(&endpoint);
+                }
+                ErrorEvent::ReceiveFailed { .. } => {
+                    self.notify_observers(ChatAppEvent::SocketEngineError(
+                        NetworkErrorEvent::SocketError(error_event.clone()),
+                    ));
+                }
+                ErrorEvent::SocketError { endpoint, .. } => {
+                    self.notify_observers(ChatAppEvent::SocketEngineError(
+                        NetworkErrorEvent::SocketError(error_event.clone()),
+                    ));
+                    
+                    self.mark_pending_messages_as_failed(&endpoint);
+                }
             },
         }
     }
@@ -174,7 +180,7 @@ impl ChatModel {
         }
     }
 
-    pub fn treat_proto_message(&mut self, proto_msg: ProtoMessage, _source_endpoint: Endpoint) {
+    pub fn treat_proto_message(&mut self, proto_msg: ProtoMessage, source_endpoint: Endpoint) {
         match &proto_msg.msg_type {
             Some(MsgType::Text(text_part)) => {
                 let chat_msg = ChatMessage::new_received(&proto_msg, &text_part);
@@ -184,7 +190,7 @@ impl ChatModel {
                 }
             }
             Some(MsgType::Ack(ack)) => {
-                self.apply_ack(&ack.message_uuid);
+                self.apply_ack(&ack.message_uuid, source_endpoint);
             }
             None => self.notify_observers(ChatAppEvent::Error(ChatAppErrorEvent::ProtocolDecode(
                 "Received proto message with unknown type".to_string(),
@@ -247,7 +253,7 @@ impl ChatModel {
                     let _ =
                         engine.send_async(peer.endpoints[0].clone(), bytes, proto_msg.uuid.clone());
                     self.notify_observers(ChatAppEvent::Info(ChatAppInfoEvent::AckSent(
-                        proto_msg.uuid.clone(),
+                        for_msg.uuid.clone(),
                         peer.uuid.clone(),
                     )));
                 }
@@ -262,7 +268,6 @@ impl ChatModel {
 
     fn add_message(&mut self, mut new_msg: ChatMessage) {
         // TODO: push in DB instead
-        // Si le message est reçu (pas envoyé par nous), forcer le status à Acknowledged
         if self.localpeer.uuid != new_msg.sender_uuid {
             new_msg.status = MessageStatus::Acknowledged;
         }
@@ -276,7 +281,7 @@ impl ChatModel {
         self.notify_observers(event);
     }
 
-    fn apply_ack(&mut self, message_uuid: &String) {
+    fn apply_ack(&mut self, message_uuid: &String, source_endpoint: Endpoint) {
         let mut result = None;
         let datetime = Utc::now();
         for message in &mut self.messages {
@@ -287,9 +292,16 @@ impl ChatModel {
         }
 
         if let Some(ref msg) = result {
+            let real_peer_endpoint = self.map_to_real_peer_endpoint(&source_endpoint);
+            
+            let ack_sender_peer = self.peers.iter()
+                .find(|peer| peer.endpoints.contains(&real_peer_endpoint))
+                .map(|peer| peer.uuid.clone())
+                .unwrap_or_else(|| format!("{}", real_peer_endpoint));
+
             self.notify_observers(ChatAppEvent::Info(ChatAppInfoEvent::AckReceived(
                 msg.uuid.clone(),
-                msg.sender_uuid.clone(),
+                ack_sender_peer,
             )));
         }
 
@@ -303,7 +315,6 @@ impl ChatModel {
     pub fn get_messages_filtered() {
         // TODO: with DB
         todo!("Implement message filtering with DB or in-memory sorting")
-        // you can test with main.rs at initialization
     }
 
     pub fn mark_as_sent(&mut self, target_uuid: &String) {
@@ -313,23 +324,23 @@ impl ChatModel {
             .position(|(_, s, _)| s == target_uuid)
         {
             let (msg_type, _uuid, _) = self.pending_send_list.remove(pos);
-            // If it's an ack, nothing more to do
             if msg_type == MessageType::Ack {
                 return;
             }
-            let mut result = None;
 
+            let mut updated_message = None;
             for message in &mut self.messages {
                 if message.uuid == *target_uuid {
                     message.send_completed = Some(Utc::now());
-                    result = Some(message.clone());
+                    updated_message = Some(message.clone());
                     break;
                 }
             }
-            if let Some(ref msg) = result {
-                self.notify_observers(ChatAppEvent::Info(ChatAppInfoEvent::Sent(msg.clone())));
-                return;
+            
+            if let Some(message) = updated_message {
+                self.notify_observers(ChatAppEvent::Info(ChatAppInfoEvent::Sent(message)));
             }
+            return;
         }
 
         self.notify_observers(ChatAppEvent::Error(ChatAppErrorEvent::InternalError(
@@ -338,5 +349,79 @@ impl ChatModel {
                 target_uuid
             ),
         )));
+    }
+
+
+    fn map_to_real_peer_endpoint(&self, temp_endpoint: &Endpoint) -> Endpoint {
+        if let Endpoint::Tcp(temp_addr) = temp_endpoint {
+            let temp_ip = temp_addr.split(':').next().unwrap_or("");
+            
+            self.peers.iter()
+                .find(|peer| {
+                    peer.endpoints.iter().any(|endpoint| {
+                        match endpoint {
+                            Endpoint::Tcp(peer_addr) => {
+                                peer_addr.split(':').next().unwrap_or("") == temp_ip
+                            },
+                            _ => false,
+                        }
+                    })
+                })
+                .and_then(|peer| peer.endpoints.first())
+                .cloned()
+                .unwrap_or_else(|| temp_endpoint.clone())
+        } else {
+            temp_endpoint.clone()
+        }
+    }
+
+    fn mark_pending_messages_as_failed(&mut self, _endpoint: &Endpoint) {
+        let messages_to_fail: Vec<String> = self.messages
+            .iter()
+            .filter(|message| {
+                matches!(message.status, MessageStatus::Sending | MessageStatus::Sent) 
+                    && message.sender_uuid == self.localpeer.uuid
+            })
+            .map(|message| message.uuid.clone())
+            .collect();
+        
+        for message in &mut self.messages {
+            if matches!(message.status, MessageStatus::Sending | MessageStatus::Sent) 
+                && message.sender_uuid == self.localpeer.uuid {
+                message.status = MessageStatus::Failed;
+            }
+        }
+        
+        for message_uuid in messages_to_fail {
+            self.notify_observers(ChatAppEvent::Info(ChatAppInfoEvent::MessageStatusChanged(
+                message_uuid, 
+                MessageStatus::Failed
+            )));
+        }
+    }
+
+    fn mark_messages_as_successfully_sent(&mut self) {
+        let messages_to_update: Vec<String> = self.messages
+            .iter()
+            .filter(|message| {
+                matches!(message.status, MessageStatus::Sending) 
+                    && message.sender_uuid == self.localpeer.uuid
+            })
+            .map(|message| message.uuid.clone())
+            .collect();
+        
+        for message in &mut self.messages {
+            if matches!(message.status, MessageStatus::Sending) 
+                && message.sender_uuid == self.localpeer.uuid {
+                message.status = MessageStatus::Sent;
+            }
+        }
+        
+        for message_uuid in messages_to_update {
+            self.notify_observers(ChatAppEvent::Info(ChatAppInfoEvent::MessageStatusChanged(
+                message_uuid, 
+                MessageStatus::Sent
+            )));
+        }
     }
 }
