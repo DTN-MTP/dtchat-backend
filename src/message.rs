@@ -9,11 +9,11 @@ use crate::{
 
 #[derive(Copy, Clone, Debug)]
 pub enum MessageStatus {
-    Sending,      // Message en cours d'envoi
-    Sent,         // Message envoyé avec succès
-    Acknowledged, // Message acquitté
-    Failed,       // Message en erreur
-    Received,     // Message reçu
+    Sending,        // Message en cours d'envoi
+    Sent,           // Message envoyé avec succès
+    ReceivedByPeer, // Message acquitté
+    Failed,         // Message en erreur
+    Received,       // Message reçu
 }
 
 #[derive(Clone, Debug)]
