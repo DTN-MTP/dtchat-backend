@@ -3,27 +3,33 @@ use crate::message::ChatMessage;
 use crate::proto::proto_message::MsgType;
 use crate::proto::{AckMessage, ProtoMessage, TextMessage};
 use prost::Message;
+use socket_engine::endpoint::Endpoint;
 
 impl ProtoMessage {
-    pub fn new_text(msg: &ChatMessage) -> ProtoMessage {
+    pub fn new_text(msg: &ChatMessage, local_endpoint: Endpoint) -> ProtoMessage {
         ProtoMessage {
             uuid: msg.uuid.clone(),
             sender_uuid: msg.sender_uuid.clone(),
             timestamp: msg.send_time.timestamp_millis(),
             room_uuid: msg.room_uuid.clone(),
-
+            source_endpoint: local_endpoint.to_string(),
             msg_type: Some(MsgType::Text(TextMessage {
                 text: msg.text.clone(),
             })),
         }
     }
-    pub fn new_ack(for_msg: &ChatMessage, local_peer_uuid: String, timestamp: i64) -> ProtoMessage {
+    pub fn new_ack(
+        for_msg: &ChatMessage,
+        local_peer_uuid: String,
+        local_endpoint: Endpoint,
+        timestamp: i64,
+    ) -> ProtoMessage {
         ProtoMessage {
             uuid: generate_uuid(),
             sender_uuid: local_peer_uuid,
             timestamp,
             room_uuid: for_msg.room_uuid.clone(),
-
+            source_endpoint: local_endpoint.to_string(),
             msg_type: Some(MsgType::Ack(AckMessage {
                 message_uuid: for_msg.uuid.clone(),
             })),

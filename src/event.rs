@@ -15,8 +15,7 @@ pub enum ChatAppInfoEvent {
     Sent(ChatMessage),
     Received(ChatMessage),
     AckSent(String, String),
-    AckReceived(String, String),
-    MessageStatusChanged(String, crate::message::MessageStatus), // message_id, new_status
+    AckReceived(String),
 }
 
 #[derive(Clone, Debug)]
@@ -39,7 +38,7 @@ pub enum ChatAppErrorEvent {
     PeerNotFound(String),
     NoEngineAttached,
     InternalError(String),
-    HostNotReachable(String), 
+    HostNotReachable(String),
 }
 
 pub trait AppEventObserver: Send + Sync {

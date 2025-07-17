@@ -4,7 +4,8 @@ use std::{
 };
 
 use dtchat_backend::{
-    dtchat::{ChatModel, Peer, extract_message_id_from_data},
+    db::simple_vec::SimpleVecDB,
+    dtchat::{ChatModel, Peer},
     event::{
         AppEventObserver, ChatAppErrorEvent, ChatAppEvent, ChatAppInfoEvent, NetworkErrorEvent,
         NetworkEvent,
@@ -27,15 +28,6 @@ fn safe_message_id_display(id: &str) -> &str {
         &id[..8]
     } else {
         id
-    }
-}
-
-// Helper function to format endpoints in a readable way
-fn format_endpoint(endpoint: &Endpoint) -> String {
-    match endpoint {
-        Endpoint::Tcp(addr) => format!("TCP {}", addr),
-        Endpoint::Udp(addr) => format!("UDP {}", addr),
-        Endpoint::Bp(addr) => format!("BP {}", addr),
     }
 }
 
@@ -120,7 +112,10 @@ impl TerminalScreen {
         print!("\x1b[2J\x1b[H");
 
         // Print header with connection info
-        println!("\x1b[1;96m=== DTChat - {} ===\x1b[0m", self.local_uuid.to_uppercase());
+        println!(
+            "\x1b[1;96m=== DTChat - {} ===\x1b[0m",
+            self.local_uuid.to_uppercase()
+        );
         println!();
 
         // Layout en deux colonnes : Messages | Events
@@ -134,7 +129,7 @@ impl TerminalScreen {
             for msg in self.messages.iter().rev().take(8).rev() {
                 let (status_indicator, status_color) = match &msg.status {
                     MessageStatus::Failed => ("FAILED", "\x1b[31m"),
-                    MessageStatus::Acknowledged => ("ACKED", "\x1b[32m"),
+                    MessageStatus::ReceivedByPeer => ("ACKED", "\x1b[32m"),
                     MessageStatus::Sent => ("SENT", "\x1b[33m"),
                     MessageStatus::Sending => ("SENDING", "\x1b[90m"),
                     MessageStatus::Received => ("RECEIVED", "\x1b[34m"),
@@ -145,7 +140,7 @@ impl TerminalScreen {
                     Some(t) => t.format("%H:%M:%S").to_string(),
                     None => String::new(),
                 };
-       
+
                 let send_time_str: String = msg.send_time.format("%H:%M:%S").to_string();
 
                 let time_display = format!("[{}:{}]", acked_time_str, send_time_str);
@@ -224,10 +219,10 @@ impl TerminalScreen {
             }
         }
 
-        let used_lines = 8 + 
-            self.messages.len().min(8).max(1) + 
-            self.network_events.len().min(6).max(1) + 
-            self.app_events.len().min(6).max(1);
+        let used_lines = 8
+            + self.messages.len().min(8).max(1)
+            + self.network_events.len().min(6).max(1)
+            + self.app_events.len().min(6).max(1);
 
         let remaining_lines = self.max_lines.saturating_sub(used_lines + 2); // +2 pour input
         for _ in 0..remaining_lines {
@@ -248,27 +243,41 @@ impl AppEventObserver for TerminalScreen {
             ChatAppEvent::SocketEngineInfo(info_event) => {
                 let (level, event_text) = match info_event {
                     NetworkEvent::Data(data_event) => match data_event {
-                        DataEvent::Received { data, from } => {
-                            let msg_id = extract_message_id_from_data(&data)
-                                .unwrap_or_else(|| "unknown".to_string());
-                            let display_id = safe_message_id_display(&msg_id);
-                            (
-                                EventLevel::Info,
-                                format!("Received message {} from {}", display_id, format_endpoint(&from)),
-                            )
-                        },
-                        DataEvent::Sent { message_id, to, bytes_sent } => {
-                            let display_id = safe_message_id_display(&message_id);
-                            (
-                                EventLevel::Info,
-                                format!("Sent message {} to {} ({} bytes)", display_id, format_endpoint(&to), bytes_sent),
-                            )
-                        },
+                        DataEvent::Received { data, from } => (
+                            EventLevel::Info,
+                            format!("Received {} bytes from {}", data.len(), from.to_string()),
+                        ),
+                        DataEvent::Sent {
+                            message_id,
+                            to,
+                            bytes_sent,
+                        } => (
+                            EventLevel::Info,
+                            format!(
+                                "Sent {} bytes to {} (token: {})",
+                                bytes_sent,
+                                to.to_string(),
+                                safe_message_id_display(&message_id)
+                            ),
+                        ),
+                        DataEvent::Sending {
+                            message_id,
+                            to,
+                            bytes,
+                        } => (
+                            EventLevel::Info,
+                            format!(
+                                "Sending {} bytes to {} (token: {})",
+                                bytes,
+                                to.to_string(),
+                                safe_message_id_display(&message_id)
+                            ),
+                        ),
                     },
                     NetworkEvent::Connection(connection_event) => match connection_event {
                         ConnectionEvent::ListenerStarted { endpoint } => (
                             EventLevel::Info,
-                            format!("Listening on {}", format_endpoint(&endpoint)),
+                            format!("Listening on {}", endpoint.to_string()),
                         ),
                         ConnectionEvent::Established { remote } => {
                             // Extraire seulement l'adresse IP:port du remote endpoint
@@ -281,7 +290,7 @@ impl AppEventObserver for TerminalScreen {
                                 EventLevel::Debug,
                                 format!("Connection established (client: {})", client_addr),
                             )
-                        },
+                        }
                         ConnectionEvent::Closed { remote } => {
                             let message = match remote {
                                 Some(remote_ep) => {
@@ -291,11 +300,11 @@ impl AppEventObserver for TerminalScreen {
                                         Endpoint::Bp(addr) => addr,
                                     };
                                     format!("Connection closed (client: {})", client_addr)
-                                },
+                                }
                                 None => "Connection closed (no client info)".to_string(),
                             };
                             (EventLevel::Debug, message)
-                        },
+                        }
                     },
                 };
 
@@ -312,10 +321,7 @@ impl AppEventObserver for TerminalScreen {
             ChatAppEvent::Info(info_event) => match info_event {
                 ChatAppInfoEvent::Sending(chat_message) => {
                     let msg_id = safe_message_id_display(&chat_message.uuid);
-                    self.add_app_event(
-                        EventLevel::Info,
-                        format!("Sending message {}", msg_id),
-                    );
+                    self.add_app_event(EventLevel::Info, format!("Sending message {}", msg_id));
 
                     if !self.messages.iter().any(|m| m.uuid == chat_message.uuid) {
                         self.messages.push_back(chat_message);
@@ -345,34 +351,19 @@ impl AppEventObserver for TerminalScreen {
                     }
                 }
                 ChatAppInfoEvent::AckSent(uuid, _peer_uuid) => {
-                    self.update_message_status(&uuid, MessageStatus::Acknowledged);
+                    self.update_message_status(&uuid, MessageStatus::ReceivedByPeer);
                     let msg_id = safe_message_id_display(&uuid);
                     self.add_app_event(
                         EventLevel::Info,
                         format!("Ack sent for message {}", msg_id),
                     );
                 }
-                ChatAppInfoEvent::AckReceived(uuid, _peer_uuid) => {
-                    self.update_message_status(&uuid, MessageStatus::Acknowledged);
+                ChatAppInfoEvent::AckReceived(uuid) => {
+                    self.update_message_status(&uuid, MessageStatus::ReceivedByPeer);
                     let msg_id = safe_message_id_display(&uuid);
                     self.add_app_event(
                         EventLevel::Info,
                         format!("Ack received for message {}", msg_id),
-                    );
-                }
-                ChatAppInfoEvent::MessageStatusChanged(uuid, new_status) => {
-                    self.update_message_status(&uuid, new_status);
-                    let msg_id = safe_message_id_display(&uuid);
-                    let status_text = match new_status {
-                        MessageStatus::Sending => "sending",
-                        MessageStatus::Sent => "sent",
-                        MessageStatus::Received => "received", 
-                        MessageStatus::Acknowledged => "acknowledged",
-                        MessageStatus::Failed => "failed",
-                    };
-                    self.add_app_event(
-                        EventLevel::Info,
-                        format!("Message {} status changed to {}", msg_id, status_text),
                     );
                 }
             },
@@ -393,7 +384,9 @@ impl AppEventObserver for TerminalScreen {
                     ChatAppErrorEvent::PeerNotFound(peer_id) => {
                         format!("Unknown peer: {}", peer_id)
                     }
-                    ChatAppErrorEvent::NoEngineAttached => "Network engine not available".to_string(),
+                    ChatAppErrorEvent::NoEngineAttached => {
+                        "Network engine not available".to_string()
+                    }
                     ChatAppErrorEvent::InternalError(details) => {
                         format!("Internal error: {}", details)
                     }
@@ -458,10 +451,10 @@ fn main() {
         name: args[2].clone(),
         endpoints: vec![distant_ep.clone()],
     };
-
     let chat_model = Arc::new(Mutex::new(ChatModel::new(
         local_peer.clone(),
         vec![distant_peer],
+        Box::new(SimpleVecDB::default()),
     )));
     let mut network_engine = Engine::new();
     network_engine.add_observer(chat_model.clone());

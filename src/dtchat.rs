@@ -4,37 +4,22 @@ use chrono::Utc;
 use socket_engine::{
     endpoint::Endpoint,
     engine::Engine,
-    event::{
-        EngineObserver, ConnectionEvent, DataEvent, ErrorEvent, SocketEngineEvent,
-    },
+    event::{ConnectionEvent, DataEvent, EngineObserver, ErrorEvent, SocketEngineEvent},
 };
 use uuid::Uuid;
 
 use crate::{
+    db::{ChatDataBase, MarkIntent},
     event::{
         AppEventObserver, ChatAppErrorEvent, ChatAppEvent, ChatAppInfoEvent, NetworkErrorEvent,
         NetworkEvent,
     },
-    message::{ChatMessage, MessageStatus, SortStrategy},
+    message::{ChatMessage, SortStrategy},
     proto::{proto_message::MsgType, ProtoMessage},
 };
 
 pub fn generate_uuid() -> String {
     Uuid::new_v4().to_string()
-}
-
-pub fn extract_message_id_from_data(data: &Vec<u8>) -> Option<String> {
-    match ProtoMessage::decode_from_vec(data.clone()) {
-        Ok(proto_msg) => {
-            let uuid = &proto_msg.uuid;
-            if uuid.len() >= 8 {
-                Some(uuid[..8].to_string())
-            } else {
-                Some(uuid.clone())
-            }
-        },
-        Err(_) => None,
-    }
 }
 
 #[derive(Clone)]
@@ -54,10 +39,10 @@ pub struct ChatModel {
     pub sort_strategy: SortStrategy,
     pub localpeer: Peer,
     pub peers: Vec<Peer>,
-    pub messages: Vec<ChatMessage>,
     observers: Vec<Arc<Mutex<dyn AppEventObserver>>>,
     network_engine: Option<Engine>,
     pending_send_list: Vec<(MessageType, String, Option<String>)>, // msg_type, uuid, original_msg_id pour ACK
+    db: Box<dyn ChatDataBase>,
 }
 
 impl EngineObserver for ChatModel {
@@ -65,20 +50,18 @@ impl EngineObserver for ChatModel {
         match event {
             SocketEngineEvent::Data(data_event) => match data_event {
                 DataEvent::Received { data, from } => {
-                    let real_peer_endpoint = self.map_to_real_peer_endpoint(&from);
-                    
-                    self.notify_observers(ChatAppEvent::SocketEngineInfo(
-                        NetworkEvent::Data(DataEvent::Received {
+                    self.notify_observers(ChatAppEvent::SocketEngineInfo(NetworkEvent::Data(
+                        DataEvent::Received {
                             data: data.clone(),
-                            from: real_peer_endpoint,
-                        }),
-                    ));
+                            from,
+                        },
+                    )));
 
                     let decode_res = ProtoMessage::decode_from_vec(data);
 
                     match decode_res {
                         Ok(proto_msg) => {
-                            self.treat_proto_message(proto_msg, from);
+                            self.treat_proto_message(proto_msg);
                         }
                         Err(decode_err) => {
                             self.notify_observers(ChatAppEvent::Error(
@@ -90,24 +73,39 @@ impl EngineObserver for ChatModel {
                         }
                     };
                 }
-                DataEvent::Sent { message_id, to, bytes_sent } => {
-                    self.notify_observers(ChatAppEvent::SocketEngineInfo(
-                        NetworkEvent::Data(DataEvent::Sent {
+                DataEvent::Sent {
+                    message_id,
+                    to,
+                    bytes_sent,
+                } => {
+                    self.notify_observers(ChatAppEvent::SocketEngineInfo(NetworkEvent::Data(
+                        DataEvent::Sent {
                             message_id: message_id.clone(),
                             to,
                             bytes_sent,
-                        }),
-                    ));
+                        },
+                    )));
 
                     self.mark_as_sent(&message_id);
+                }
+                DataEvent::Sending {
+                    message_id,
+                    to,
+                    bytes,
+                } => {
+                    self.notify_observers(ChatAppEvent::SocketEngineInfo(NetworkEvent::Data(
+                        DataEvent::Sending {
+                            message_id: message_id.clone(),
+                            to,
+                            bytes,
+                        },
+                    )));
                 }
             },
             SocketEngineEvent::Connection(connection_event) => match connection_event {
                 ConnectionEvent::ListenerStarted { endpoint } => {
                     self.notify_observers(ChatAppEvent::SocketEngineInfo(
-                        NetworkEvent::Connection(ConnectionEvent::ListenerStarted {
-                            endpoint,
-                        }),
+                        NetworkEvent::Connection(ConnectionEvent::ListenerStarted { endpoint }),
                     ));
                 }
                 ConnectionEvent::Established { remote } => {
@@ -116,8 +114,6 @@ impl EngineObserver for ChatModel {
                             remote: remote.clone(),
                         }),
                     ));
-
-                    self.mark_messages_as_successfully_sent();
                 }
                 ConnectionEvent::Closed { remote } => {
                     self.notify_observers(ChatAppEvent::SocketEngineInfo(
@@ -128,35 +124,33 @@ impl EngineObserver for ChatModel {
                 }
             },
             SocketEngineEvent::Error(error_event) => match &error_event {
-                ErrorEvent::ConnectionFailed { endpoint, .. } => {
-                    self.notify_observers(ChatAppEvent::SocketEngineError(
-                        NetworkErrorEvent::SocketError(error_event.clone()),
-                    ));
-                    
+                ErrorEvent::ConnectionFailed {
+                    endpoint,
+                    reason: _,
+                    token,
+                } => {
                     self.notify_observers(ChatAppEvent::Error(
-                        ChatAppErrorEvent::HostNotReachable(format!("{}", endpoint))
+                        ChatAppErrorEvent::HostNotReachable(format!("{}", endpoint)),
                     ));
-                    
-                    self.mark_pending_messages_as_failed(&endpoint);
+
+                    self.mark_pending_message_as_failed(token);
                 }
-                ErrorEvent::SendFailed { endpoint, .. } => {
-                    self.notify_observers(ChatAppEvent::SocketEngineError(
-                        NetworkErrorEvent::SocketError(error_event.clone()),
-                    ));
-                    
-                    self.mark_pending_messages_as_failed(&endpoint);
+                ErrorEvent::SendFailed {
+                    endpoint: _,
+                    reason: _,
+                    token,
+                } => {
+                    self.mark_pending_message_as_failed(token);
                 }
                 ErrorEvent::ReceiveFailed { .. } => {
                     self.notify_observers(ChatAppEvent::SocketEngineError(
                         NetworkErrorEvent::SocketError(error_event.clone()),
                     ));
                 }
-                ErrorEvent::SocketError { endpoint, .. } => {
+                ErrorEvent::SocketError { .. } => {
                     self.notify_observers(ChatAppEvent::SocketEngineError(
                         NetworkErrorEvent::SocketError(error_event.clone()),
                     ));
-                    
-                    self.mark_pending_messages_as_failed(&endpoint);
                 }
             },
         }
@@ -164,18 +158,16 @@ impl EngineObserver for ChatModel {
 }
 
 impl ChatModel {
-
-
-    pub fn new(localpeer: Peer, peers: Vec<Peer>) -> Self {
+    pub fn new(localpeer: Peer, peers: Vec<Peer>, db: Box<dyn ChatDataBase>) -> Self {
         Self {
             // TODO: have an SQL(ite) db.rs
             sort_strategy: SortStrategy::Standard,
             localpeer,
-            peers,
-            messages: Vec::new(),
+            peers, // TODO Maybe move that to DB once the sender endpoint is on the protobuf msg
             observers: Vec::new(),
             network_engine: None,
             pending_send_list: Vec::new(),
+            db,
         }
     }
     pub fn start(&mut self, engine: Engine) {
@@ -187,17 +179,29 @@ impl ChatModel {
         }
     }
 
-    pub fn treat_proto_message(&mut self, proto_msg: ProtoMessage, source_endpoint: Endpoint) {
+    pub fn treat_proto_message(&mut self, proto_msg: ProtoMessage) {
         match &proto_msg.msg_type {
             Some(MsgType::Text(text_part)) => {
                 let chat_msg = ChatMessage::new_received(&proto_msg, &text_part);
                 if let Some(msg) = chat_msg {
                     self.add_message(msg.clone());
-                    self.send_ack_to_peer(&msg);
+
+                    match Endpoint::from_str(proto_msg.source_endpoint.as_str()) {
+                        Ok(endpoint) => self.send_ack_to_peer(&msg, endpoint),
+                        Err(_err) => {
+                            self.notify_observers(ChatAppEvent::Error(
+                                ChatAppErrorEvent::ProtocolDecode(
+                                    "Received proto message source endpoint cannot be parsed"
+                                        .to_string(),
+                                ),
+                            ));
+                            // TODO: fallback to another endpoint for the distant peer?
+                        }
+                    }
                 }
             }
             Some(MsgType::Ack(ack)) => {
-                self.apply_ack(&ack.message_uuid, source_endpoint);
+                self.mark_as_acked(&ack.message_uuid);
             }
             None => self.notify_observers(ChatAppEvent::Error(ChatAppErrorEvent::ProtocolDecode(
                 "Received proto message with unknown type".to_string(),
@@ -223,11 +227,11 @@ impl ChatModel {
         self.add_message(chatmsg.clone());
 
         if let Some(engine) = &mut self.network_engine {
-            let bytes_res = ProtoMessage::new_text(&chatmsg).encode_to_vec();
+            let bytes_res = ProtoMessage::new_text(&chatmsg, self.localpeer.endpoints[0].clone())
+                .encode_to_vec();
             match bytes_res {
                 Ok(bytes) => {
                     let _ = engine.send_async(endpoint.clone(), bytes, sending_uuid);
-
                 }
                 Err(err) => {
                     self.notify_observers(ChatAppEvent::Error(ChatAppErrorEvent::ProtocolEncode(
@@ -238,15 +242,11 @@ impl ChatModel {
         }
     }
 
-    pub fn send_ack_to_peer(&mut self, for_msg: &ChatMessage) {
-        let peer = self
-            .peers
-            .iter()
-            .find(|peer| peer.uuid == for_msg.sender_uuid)
-            .unwrap();
+    pub fn send_ack_to_peer(&mut self, for_msg: &ChatMessage, target_endpoint: Endpoint) {
         let proto_msg = ProtoMessage::new_ack(
             for_msg,
             self.localpeer.uuid.clone(),
+            self.localpeer.endpoints[0].clone(),
             Utc::now().timestamp_millis(),
         );
         self.pending_send_list.push((
@@ -258,10 +258,10 @@ impl ChatModel {
             match proto_msg.encode_to_vec() {
                 Ok(bytes) => {
                     let _ =
-                        engine.send_async(peer.endpoints[0].clone(), bytes, proto_msg.uuid.clone());
+                        engine.send_async(target_endpoint.clone(), bytes, proto_msg.uuid.clone());
                     self.notify_observers(ChatAppEvent::Info(ChatAppInfoEvent::AckSent(
                         for_msg.uuid.clone(),
-                        peer.uuid.clone(),
+                        target_endpoint.to_string(),
                     )));
                 }
                 Err(err) => {
@@ -273,12 +273,8 @@ impl ChatModel {
         }
     }
 
-    fn add_message(&mut self, mut new_msg: ChatMessage) {
-        // TODO: push in DB instead
-        if self.localpeer.uuid != new_msg.sender_uuid {
-            new_msg.status = MessageStatus::Acknowledged;
-        }
-        self.messages.push(new_msg.clone());
+    fn add_message(&mut self, new_msg: ChatMessage) {
+        self.db.add_message(new_msg.clone());
 
         let event = if self.localpeer.uuid == new_msg.sender_uuid {
             ChatAppEvent::Info(ChatAppInfoEvent::Sending(new_msg.clone()))
@@ -288,40 +284,23 @@ impl ChatModel {
         self.notify_observers(event);
     }
 
-    fn apply_ack(&mut self, message_uuid: &String, source_endpoint: Endpoint) {
-        let mut result = None;
-        let datetime = Utc::now();
-        for message in &mut self.messages {
-            if message.uuid == *message_uuid {
-                message.receive_time = Some(datetime);
-                result = Some(message.clone());
-            }
-        }
-
-        if let Some(ref msg) = result {
-            let real_peer_endpoint = self.map_to_real_peer_endpoint(&source_endpoint);
-            
-            let ack_sender_peer = self.peers.iter()
-                .find(|peer| peer.endpoints.contains(&real_peer_endpoint))
-                .map(|peer| peer.uuid.clone())
-                .unwrap_or_else(|| format!("{}", real_peer_endpoint));
-
+    fn mark_as_acked(&mut self, message_uuid: &String) {
+        if let Some(message) = self
+            .db
+            .mark_as(&message_uuid, MarkIntent::Acked(Utc::now()))
+        {
             self.notify_observers(ChatAppEvent::Info(ChatAppInfoEvent::AckReceived(
-                msg.uuid.clone(),
-                ack_sender_peer,
+                message.uuid.clone(),
             )));
-        }
-
-        if result.is_none() {
+        } else {
             self.notify_observers(ChatAppEvent::Error(ChatAppErrorEvent::MessageNotFound(
                 format!("Received ack for unknown message: {}", message_uuid),
             )));
         }
     }
 
-    pub fn get_messages_filtered() {
-        // TODO: with DB
-        todo!("Implement message filtering with DB or in-memory sorting")
+    pub fn get_messages_filtered(&mut self) {
+        self.db.get_messages_filtered();
     }
 
     pub fn mark_as_sent(&mut self, target_uuid: &String) {
@@ -335,100 +314,55 @@ impl ChatModel {
                 return;
             }
 
-            let mut updated_message = None;
-            for message in &mut self.messages {
-                if message.uuid == *target_uuid {
-                    message.send_completed = Some(Utc::now());
-                    updated_message = Some(message.clone());
-                    break;
-                }
-            }
-            
-            if let Some(message) = updated_message {
+            if let Some(message) = self.db.mark_as(&target_uuid, MarkIntent::Sent(Utc::now())) {
                 self.notify_observers(ChatAppEvent::Info(ChatAppInfoEvent::Sent(message)));
+            } else {
+                self.notify_observers(ChatAppEvent::Error(ChatAppErrorEvent::MessageNotFound(
+                    format!("Message cannot be found in the database: {}", target_uuid),
+                )));
             }
             return;
         }
 
         self.notify_observers(ChatAppEvent::Error(ChatAppErrorEvent::InternalError(
             format!(
-                "Unable to apply sent success status for message: {}",
+                "Message cannot be found in the sending pending list: {}",
                 target_uuid
             ),
         )));
     }
 
-
-    fn map_to_real_peer_endpoint(&self, temp_endpoint: &Endpoint) -> Endpoint {
-        if let Endpoint::Tcp(temp_addr) = temp_endpoint {
-            let temp_ip = temp_addr.split(':').next().unwrap_or("");
-            
-            self.peers.iter()
-                .find(|peer| {
-                    peer.endpoints.iter().any(|endpoint| {
-                        match endpoint {
-                            Endpoint::Tcp(peer_addr) => {
-                                peer_addr.split(':').next().unwrap_or("") == temp_ip
-                            },
-                            _ => false,
-                        }
-                    })
-                })
-                .and_then(|peer| peer.endpoints.first())
-                .cloned()
-                .unwrap_or_else(|| temp_endpoint.clone())
-        } else {
-            temp_endpoint.clone()
-        }
-    }
-
-    fn mark_pending_messages_as_failed(&mut self, _endpoint: &Endpoint) {
-        let messages_to_fail: Vec<String> = self.messages
+    fn mark_pending_message_as_failed(&mut self, target_uuid: &String) {
+        if let Some(pos) = self
+            .pending_send_list
             .iter()
-            .filter(|message| {
-                matches!(message.status, MessageStatus::Sending | MessageStatus::Sent) 
-                    && message.sender_uuid == self.localpeer.uuid
-            })
-            .map(|message| message.uuid.clone())
-            .collect();
-        
-        for message in &mut self.messages {
-            if matches!(message.status, MessageStatus::Sending | MessageStatus::Sent) 
-                && message.sender_uuid == self.localpeer.uuid {
-                message.status = MessageStatus::Failed;
+            .position(|(_, s, _)| s == target_uuid)
+        {
+            let (msg_type, _uuid, _) = self.pending_send_list.remove(pos);
+
+            match msg_type {
+                MessageType::Ack => {}
+                // TODO: what is the strategy ? retries ? Maybe "nothing", the handling of this can be user
+                // action, like pressing a "retry" button,
+                MessageType::Text => {
+                    if let Some(_message) = self.db.mark_as(&target_uuid, MarkIntent::Failed) {
+                        // TODO: Same
+                    } else {
+                        self.notify_observers(ChatAppEvent::Error(
+                            ChatAppErrorEvent::MessageNotFound(format!(
+                                "Message cannot be found in the database: {}",
+                                target_uuid
+                            )),
+                        ));
+                    }
+                }
             }
         }
-        
-        for message_uuid in messages_to_fail {
-            self.notify_observers(ChatAppEvent::Info(ChatAppInfoEvent::MessageStatusChanged(
-                message_uuid, 
-                MessageStatus::Failed
-            )));
-        }
-    }
-
-    fn mark_messages_as_successfully_sent(&mut self) {
-        let messages_to_update: Vec<String> = self.messages
-            .iter()
-            .filter(|message| {
-                matches!(message.status, MessageStatus::Sending) 
-                    && message.sender_uuid == self.localpeer.uuid
-            })
-            .map(|message| message.uuid.clone())
-            .collect();
-        
-        for message in &mut self.messages {
-            if matches!(message.status, MessageStatus::Sending) 
-                && message.sender_uuid == self.localpeer.uuid {
-                message.status = MessageStatus::Sent;
-            }
-        }
-        
-        for message_uuid in messages_to_update {
-            self.notify_observers(ChatAppEvent::Info(ChatAppInfoEvent::MessageStatusChanged(
-                message_uuid, 
-                MessageStatus::Sent
-            )));
-        }
+        self.notify_observers(ChatAppEvent::Error(ChatAppErrorEvent::InternalError(
+            format!(
+                "Message cannot be found in the sending pending list: {}",
+                target_uuid
+            ),
+        )));
     }
 }
