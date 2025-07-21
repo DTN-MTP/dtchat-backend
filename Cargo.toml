@@ -8,6 +8,12 @@ socket-engine = { path = "../socket-engine" }
 uuid = { version = "1.6.1", features = ["v4"] }
 chrono = "0.4.41"
 prost = "0.14.1"
+tokio = { version = "1.46.1", features = ["full"] }
+clap = { version = "4.0", features = ["derive"] }
 
 [build-dependencies]
 prost-build = "0.14.1"
+
+[[example]]
+name = "dtchat_tui"
+path = "examples/dtchat_tui.rs"

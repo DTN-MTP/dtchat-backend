@@ -39,7 +39,7 @@ impl ChatDataBase for SimpleVecDB {
                         return Some(message.clone());
                     }
                     MarkIntent::Failed => {
-                        message.status = MessageStatus::Sent;
+                        message.status = MessageStatus::Failed;
                         return Some(message.clone());
                     }
                 }

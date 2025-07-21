@@ -1,8 +1,6 @@
-use std::{
-    env,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 
+use clap::Parser;
 use dtchat_backend::{
     db::simple_vec::SimpleVecDB,
     dtchat::{ChatModel, Peer},
@@ -21,6 +19,39 @@ use socket_engine::{
 use chrono::{DateTime, Utc};
 use std::collections::VecDeque;
 use std::io::{self, Write};
+
+#[derive(Parser)]
+#[command(name = "terminal_chat")]
+#[command(about = "A terminal-based chat application using DTChat")]
+struct Args {
+    /// Protocole à utiliser (udp, tcp, bp)
+    #[arg(short, long)]
+    protocol: String,
+    
+    /// Port local pour écouter (pour UDP/TCP)
+    #[arg(short = 'l', long)]
+    local_port: Option<u16>,
+    
+    /// Port distant pour envoyer (pour UDP/TCP)
+    #[arg(short = 'd', long)]
+    dist_port: Option<u16>,
+    
+    /// Adresse IP (par défaut 127.0.0.1, pour UDP/TCP)
+    #[arg(short, long, default_value = "127.0.0.1")]
+    ip: String,
+    
+    /// Adresse locale (pour Bundle Protocol)
+    #[arg(short = 'L', long)]
+    local_addr: Option<String>,
+    
+    /// Adresse distante (pour Bundle Protocol)
+    #[arg(short = 'D', long)]
+    dist_addr: Option<String>,
+
+    /// View height for the terminal display
+    #[arg(short = 'v', long, default_value = "10")]
+    view_height: usize,
+}
 
 // Helper function to safely extract first 8 characters of a message ID
 fn safe_message_id_display(id: &str) -> &str {
@@ -390,7 +421,7 @@ impl AppEventObserver for TerminalScreen {
                     ChatAppErrorEvent::InternalError(details) => {
                         format!("Internal error: {}", details)
                     }
-                    ChatAppErrorEvent::HostNotReachable(endpoint) => {
+                    ChatAppErrorEvent::HostError(endpoint) => {
                         format!("Host not reachable: {}", endpoint)
                     }
                 };
@@ -403,65 +434,85 @@ impl AppEventObserver for TerminalScreen {
     }
 }
 
-fn main() {
-    // --- 1) parse CLI argument
-    let args: Vec<String> = env::args().collect();
-    let mut view_height: usize = 10;
-    if args.len() < 3 {
-        eprintln!(
-            "Usage: {} <local-endpoint> <distant-endpoint> [<view-height>, default: 10]",
-            args[0]
-        );
-        std::process::exit(1);
+fn build_endpoints_from_args(args: &Args) -> Result<(Endpoint, Endpoint), String> {
+    let protocol = args.protocol.to_lowercase();
+    
+    match protocol.as_str() {
+        "udp" => {
+            let local_port = args.local_port.ok_or("Local port is required for UDP")?;
+            let dist_port = args.dist_port.ok_or("Distant port is required for UDP")?;
+            
+            let local_addr = format!("{}:{}", args.ip, local_port);
+            let dist_addr = format!("{}:{}", args.ip, dist_port);
+            
+            let local_ep = Endpoint::Udp(local_addr);
+            let dist_ep = Endpoint::Udp(dist_addr);
+                
+            Ok((local_ep, dist_ep))
+        }
+        "tcp" => {
+            let local_port = args.local_port.ok_or("Local port is required for TCP")?;
+            let dist_port = args.dist_port.ok_or("Distant port is required for TCP")?;
+            
+            let local_addr = format!("{}:{}", args.ip, local_port);
+            let dist_addr = format!("{}:{}", args.ip, dist_port);
+            
+            let local_ep = Endpoint::Tcp(local_addr);
+            let dist_ep = Endpoint::Tcp(dist_addr);
+                
+            Ok((local_ep, dist_ep))
+        }
+        "bp" => {
+            let local_addr = args.local_addr.as_ref().ok_or("Local address is required for BP")?;
+            let dist_addr = args.dist_addr.as_ref().ok_or("Distant address is required for BP")?;
+            
+            let local_ep = Endpoint::Bp(local_addr.clone());
+            let dist_ep = Endpoint::Bp(dist_addr.clone());
+                
+            Ok((local_ep, dist_ep))
+        }
+        _ => Err(format!("Unsupported protocol: {}. Use 'udp', 'tcp', or 'bp'", protocol))
     }
+}
 
-    let local_ep = match Endpoint::from_str(&args[1]) {
-        Ok(ep) => ep,
+#[tokio::main]
+async fn main() {
+    let args = Args::parse();
+
+    let (local_ep, distant_ep) = match build_endpoints_from_args(&args) {
+        Ok(endpoints) => endpoints,
         Err(e) => {
-            eprintln!("Invalid local endpoint `{}`: {}", args[1], e);
+            eprintln!("Error: {}", e);
             std::process::exit(1);
         }
     };
-    let distant_ep = match Endpoint::from_str(&args[2]) {
-        Ok(ep) => ep,
-        Err(e) => {
-            eprintln!("Invalid distant endpoint `{}`: {}", args[2], e);
-            std::process::exit(1);
-        }
-    };
-
-    if args.len() >= 4 {
-        match &args[3].parse() {
-            Ok(n) => view_height = *n,
-            _ => {
-                eprintln!("Error: '{}' is not a valid positive integer.", &args[3]);
-                std::process::exit(1);
-            }
-        };
-    }
 
     let local_peer = Peer {
-        uuid: args[1].clone(),
-        name: args[1].clone(),
-        endpoints: vec![local_ep],
+        uuid: local_ep.to_string(),
+        name: local_ep.to_string(),
+        endpoints: vec![local_ep.clone()],
     };
 
     let distant_peer = Peer {
-        uuid: args[2].clone(),
-        name: args[2].clone(),
+        uuid: distant_ep.to_string(),
+        name: distant_ep.to_string(),
         endpoints: vec![distant_ep.clone()],
     };
+    
     let chat_model = Arc::new(Mutex::new(ChatModel::new(
         local_peer.clone(),
         vec![distant_peer],
         Box::new(SimpleVecDB::default()),
     )));
+    
     let mut network_engine = Engine::new();
     network_engine.add_observer(chat_model.clone());
+    
     let screen = Arc::new(Mutex::new(TerminalScreen::new(
-        args[1].clone(),
-        view_height,
+        local_ep.to_string(),
+        args.view_height,
     )));
+    
     chat_model.lock().unwrap().add_observer(screen.clone());
     chat_model.lock().unwrap().start(network_engine);
 

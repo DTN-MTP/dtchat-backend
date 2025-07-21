@@ -4,7 +4,7 @@ use chrono::Utc;
 use socket_engine::{
     endpoint::Endpoint,
     engine::Engine,
-    event::{ConnectionEvent, DataEvent, EngineObserver, ErrorEvent, SocketEngineEvent},
+    event::{ConnectionEvent, ConnectionFailureReason, DataEvent, EngineObserver, ErrorEvent, SocketEngineEvent},
 };
 use uuid::Uuid;
 
@@ -126,11 +126,26 @@ impl EngineObserver for ChatModel {
             SocketEngineEvent::Error(error_event) => match &error_event {
                 ErrorEvent::ConnectionFailed {
                     endpoint,
-                    reason: _,
+                    reason,
                     token,
                 } => {
+                    let error_message = match reason {
+                        ConnectionFailureReason::Refused => {
+                            format!("Connection refused to {}", endpoint)
+                        }
+                        ConnectionFailureReason::Timeout => {
+                            format!("Connection timeout to {}", endpoint)
+                        }
+                        ConnectionFailureReason::NetworkUnreachable => {
+                            format!("Network unreachable to {}", endpoint)
+                        }
+                        ConnectionFailureReason::Other => {
+                            format!("Connection failed to {} (unknown reason)", endpoint)
+                        }
+                    };
+                    
                     self.notify_observers(ChatAppEvent::Error(
-                        ChatAppErrorEvent::HostNotReachable(format!("{}", endpoint)),
+                        ChatAppErrorEvent::HostError(error_message),
                     ));
 
                     self.mark_pending_message_as_failed(token);
@@ -231,7 +246,7 @@ impl ChatModel {
                 .encode_to_vec();
             match bytes_res {
                 Ok(bytes) => {
-                    let _ = engine.send_async(endpoint.clone(), bytes, sending_uuid);
+                    let _ = engine.send_async_runtime(endpoint.clone(), bytes, sending_uuid);
                 }
                 Err(err) => {
                     self.notify_observers(ChatAppEvent::Error(ChatAppErrorEvent::ProtocolEncode(
@@ -258,7 +273,7 @@ impl ChatModel {
             match proto_msg.encode_to_vec() {
                 Ok(bytes) => {
                     let _ =
-                        engine.send_async(target_endpoint.clone(), bytes, proto_msg.uuid.clone());
+                        engine.send_async_runtime(target_endpoint.clone(), bytes, proto_msg.uuid.clone());
                     self.notify_observers(ChatAppEvent::Info(ChatAppInfoEvent::AckSent(
                         for_msg.uuid.clone(),
                         target_endpoint.to_string(),
@@ -345,8 +360,11 @@ impl ChatModel {
                 // TODO: what is the strategy ? retries ? Maybe "nothing", the handling of this can be user
                 // action, like pressing a "retry" button,
                 MessageType::Text => {
-                    if let Some(_message) = self.db.mark_as(&target_uuid, MarkIntent::Failed) {
-                        // TODO: Same
+                    if let Some(message) = self.db.mark_as(&target_uuid, MarkIntent::Failed) {
+                        // self.notify_observers(ChatAppEvent::Info(ChatAppInfoEvent::AckReceived(())));
+                        self.notify_observers(ChatAppEvent::Error(ChatAppErrorEvent::HostError(
+                            format!("Message failed to send: {}", message.uuid),
+                        )));
                     } else {
                         self.notify_observers(ChatAppEvent::Error(
                             ChatAppErrorEvent::MessageNotFound(format!(
@@ -357,12 +375,13 @@ impl ChatModel {
                     }
                 }
             }
+        } else {
+            self.notify_observers(ChatAppEvent::Error(ChatAppErrorEvent::InternalError(
+                format!(
+                    "Message cannot be found in the sending pending list: {}",
+                    target_uuid
+                ),
+            )));
         }
-        self.notify_observers(ChatAppEvent::Error(ChatAppErrorEvent::InternalError(
-            format!(
-                "Message cannot be found in the sending pending list: {}",
-                target_uuid
-            ),
-        )));
     }
 }

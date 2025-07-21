@@ -5,6 +5,7 @@ A distributed chat application backend written in Rust that supports peer-to-pee
 ## Dependencies
 
 - `socket-engine`: Custom networking engine for handling UDP and TCP connections
+- `clap`: Command-line argument parsing
 
 ## Features
 
@@ -15,6 +16,21 @@ A distributed chat application backend written in Rust that supports peer-to-pee
 - **Protocol Buffers**: Efficient message serialization using protobuf
 - **Message Status Tracking**: Track message states (sending, sent, acknowledged, failed)
 - **UUID-based Identification**: Unique identification for peers and messages
+- **Command-line Interface**: User-friendly argument parsing with clap
+
+## Building
+
+### Library
+To build the library only:
+```bash
+cargo build
+```
+
+### Examples
+To build and run the terminal chat example:
+```bash
+cargo run --example dtchat_tui -- --help
+```
 
 ## Architecture
 
@@ -28,30 +44,69 @@ The application consists of several key components:
 
 ## Usage
 
-### Basic Setup
+### Running the Terminal Chat Example
 
-The application requires two arguments:
-1. **Local endpoint**: The address this instance will listen on
-2. **Remote endpoint**: The address of the peer to connect to
+The application is available as an example with command-line argument parsing using `clap`. The terminal chat example provides an interactive interface for peer-to-peer communication.
 
-### Quick Test with UDP
+#### Command Line Help
 
-To test the chat functionality using UDP/BP/TCP protocol:
+To see all available options:
 
 ```bash
-# Terminal 1 (First peer)
-cargo run -- "<PROTOCOL> 127.0.0.1:7777" "<PROTOCOL> 127.0.0.1:6666"
+cargo run --example dtchat_tui -- --help
+```
 
-# Terminal 2 (Second peer)
-cargo run -- "<PROTOCOL> 127.0.0.1:6666" "<PROTOCOL> 127.0.0.1:7777"
+#### Command Line Options
+
+- `--protocol, -p`: Protocol to use (udp, tcp, bp) - **Required**
+- `--local-port, -l`: Local port for listening (for UDP/TCP)
+- `--dist-port, -d`: Distant port for sending (for UDP/TCP)
+- `--ip, -i`: IP address (default: 127.0.0.1, for UDP/TCP)
+- `--local-addr, -L`: Local address (for Bundle Protocol)
+- `--dist-addr, -D`: Distant address (for Bundle Protocol)
+- `--view-height, -v`: Terminal display height (default: 10)
+
+### Quick Test with Different Protocols
+
+To test the chat functionality using various protocols:
+
+#### UDP Protocol
+```bash
+# Terminal 1 (listening on port 8080, sending to 8081)
+cargo run --example dtchat_tui -- --protocol udp --local-port 8080 --dist-port 8081
+
+# Terminal 2 (listening on port 8081, sending to 8080)
+cargo run --example dtchat_tui -- --protocol udp --local-port 8081 --dist-port 8080
+```
+
+#### TCP Protocol
+```bash
+# Terminal 1 (listening on port 8080, sending to 8081)
+cargo run --example dtchat_tui -- --protocol tcp --local-port 8080 --dist-port 8081
+
+# Terminal 2 (listening on port 8081, sending to 8080)
+cargo run --example dtchat_tui -- --protocol tcp --local-port 8081 --dist-port 8080
+```
+
+#### Bundle Protocol
+```bash
+# Terminal 1
+cargo run --example dtchat_tui -- --protocol bp --local-addr node1 --dist-addr node2
+
+# Terminal 2
+cargo run --example dtchat_tui -- --protocol bp --local-addr node2 --dist-addr node1
+```
+
+#### With Custom View Height and Different IP
+```bash
+cargo run --example dtchat_tui -- --protocol udp --local-port 8080 --dist-port 8081 --ip 192.168.1.100 --view-height 20
 ```
 
 ### Supported Protocols
 
-- **UDP**: `udp <ip>:<port>`
-- **TCP**: `tcp <ip>:<port>`
-- **Bundle Protocol**: `bp <address>`
-
+- **UDP**: Requires `--local-port` and `--dist-port` options
+- **TCP**: Requires `--local-port` and `--dist-port` options  
+- **Bundle Protocol**: Requires `--local-addr` and `--dist-addr` options
 
 ## Message Protocol
 
@@ -92,3 +147,15 @@ The application provides a real-time terminal interface displaying:
 - `ACKED`: Message has been acknowledged by recipient
 - `FAILED`: Message transmission failed
 - `RECEIVED`: Message received from peer
+
+### Usage in the Terminal
+
+- Type your message and press Enter to send
+- Type `quit` or `exit` to close the application
+- The interface shows real-time updates for all network and application events
+
+## Examples Directory
+
+The `examples/` directory contains:
+
+- **dtchat_tui.rs**: Interactive terminal-based chat client demonstrating the library usage with support for all three protocols (UDP, TCP, BP)
