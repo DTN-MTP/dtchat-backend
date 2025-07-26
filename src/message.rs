@@ -28,7 +28,7 @@ pub struct ChatMessage {
     pub predicted_arrival_time: Option<DateTime<Utc>>,
     pub receive_time: Option<DateTime<Utc>>,
     pub status: MessageStatus,
-    pub network_endpoint: Endpoint,
+    pub source_endpoint: Endpoint,
 }
 
 fn get_timestamps_frm_opt(datetime_opt: Option<DateTime<Utc>>) -> Option<i64> {
@@ -43,7 +43,7 @@ impl ChatMessage {
         sender_uuid: &String,
         room_uuid: &String,
         text: &String,
-        network_endpoint: Endpoint,
+        source_endpoint: Endpoint,
     ) -> Self {
         ChatMessage {
             uuid: generate_uuid(),
@@ -55,13 +55,13 @@ impl ChatMessage {
             predicted_arrival_time: None,
             receive_time: None,
             status: MessageStatus::Sending,
-            network_endpoint,
+            source_endpoint,
         }
     }
 
     pub fn new_received(proto_msg: &ProtoMessage, text_part: &TextMessage) -> Option<Self> {
         if let Some(datetime) = DateTime::from_timestamp_millis(proto_msg.timestamp) {
-            if let Some(network_endpoint) = Endpoint::from_str(&proto_msg.source_endpoint).ok() {
+            if let Some(source_endpoint) = Endpoint::from_str(&proto_msg.source_endpoint).ok() {
                 return Some(ChatMessage {
                     uuid: proto_msg.uuid.clone(),
                     sender_uuid: proto_msg.sender_uuid.clone(),
@@ -72,7 +72,7 @@ impl ChatMessage {
                     predicted_arrival_time: None,
                     receive_time: Some(Utc::now()),
                     status: MessageStatus::Received,
-                    network_endpoint,
+                    source_endpoint,
                 });
             }
         }
@@ -164,7 +164,7 @@ pub fn filter_by_network_endpoint(
 ) -> Vec<ChatMessage> {
     messages
         .iter()
-        .filter(|msg| msg.network_endpoint.proto == protocol_filter)
+        .filter(|msg| msg.source_endpoint.proto == protocol_filter)
         .cloned()
         .collect()
 }
