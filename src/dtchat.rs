@@ -220,14 +220,19 @@ impl ChatModel {
     }
 
     pub fn send_to_peer(&mut self, text: &String, room: &String, endpoint: &Endpoint) {
-        let chatmsg = ChatMessage::new_to_send(&self.localpeer.uuid, room, text);
+        let chatmsg = ChatMessage::new_to_send(&self.localpeer.uuid, room, text, Some(endpoint.clone()));
         let sending_uuid = chatmsg.uuid.clone();
+        
+        let local_endpoint = self.find_local_endpoint_for_protocol(endpoint)
+            .unwrap_or_else(|| self.localpeer.endpoints[0].clone());
+ 
+        
         self.pending_send_list
             .push((MessageType::Text, sending_uuid.clone(), None));
         self.add_message(chatmsg.clone());
 
         if let Some(engine) = &mut self.network_engine {
-            let bytes_res = ProtoMessage::new_text(&chatmsg, self.localpeer.endpoints[0].clone())
+            let bytes_res = ProtoMessage::new_text(&chatmsg, local_endpoint)
                 .encode_to_vec();
             match bytes_res {
                 Ok(bytes) => {
@@ -243,10 +248,13 @@ impl ChatModel {
     }
 
     pub fn send_ack_to_peer(&mut self, for_msg: &ChatMessage, target_endpoint: Endpoint) {
+        let local_endpoint = self.find_local_endpoint_for_protocol(&target_endpoint)
+            .unwrap_or_else(|| self.localpeer.endpoints[0].clone());
+            
         let proto_msg = ProtoMessage::new_ack(
             for_msg,
             self.localpeer.uuid.clone(),
-            self.localpeer.endpoints[0].clone(),
+            local_endpoint,
             Utc::now().timestamp_millis(),
         );
         self.pending_send_list.push((
@@ -303,6 +311,10 @@ impl ChatModel {
         self.db.get_messages_filtered();
     }
 
+    pub fn get_all_messages(&self) -> Vec<ChatMessage> {
+        self.db.get_all_messages()
+    }
+
     pub fn mark_as_sent(&mut self, target_uuid: &String) {
         if let Some(pos) = self
             .pending_send_list
@@ -324,12 +336,6 @@ impl ChatModel {
             return;
         }
 
-        self.notify_observers(ChatAppEvent::Error(ChatAppErrorEvent::InternalError(
-            format!(
-                "Message cannot be found in the sending pending list: {}",
-                target_uuid
-            ),
-        )));
     }
 
     fn mark_pending_message_as_failed(&mut self, target_uuid: &String) {
@@ -358,11 +364,17 @@ impl ChatModel {
                 }
             }
         }
-        self.notify_observers(ChatAppEvent::Error(ChatAppErrorEvent::InternalError(
-            format!(
-                "Message cannot be found in the sending pending list: {}",
-                target_uuid
-            ),
-        )));
+
+    }
+
+    fn find_local_endpoint_for_protocol(&self, target_endpoint: &Endpoint) -> Option<Endpoint> {
+        self.localpeer.endpoints.iter()
+            .find(|ep| match (ep, target_endpoint) {
+                (Endpoint::Tcp(_), Endpoint::Tcp(_)) => true,
+                (Endpoint::Udp(_), Endpoint::Udp(_)) => true,
+                (Endpoint::Bp(_), Endpoint::Bp(_)) => true,
+                _ => false,
+            })
+            .cloned()
     }
 }

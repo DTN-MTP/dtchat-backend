@@ -13,7 +13,7 @@ use dtchat_backend::{
     message::{ChatMessage, MessageStatus},
 };
 use socket_engine::{
-    endpoint::Endpoint,
+    endpoint::{Endpoint},
     engine::Engine,
     event::{ConnectionEvent, DataEvent},
 };
