@@ -24,6 +24,10 @@ impl ChatDataBase for SimpleVecDB {
         self.messages.push(msg);
     }
 
+    fn get_all_messages(&self) -> Vec<ChatMessage> {
+        self.messages.clone()
+    }
+
     fn mark_as(&mut self, uuid: &String, intent: super::MarkIntent) -> Option<ChatMessage> {
         for message in &mut self.messages {
             if message.uuid == *uuid {
