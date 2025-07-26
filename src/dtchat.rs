@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use chrono::Utc;
 use socket_engine::{
-    endpoint::Endpoint,
+    endpoint::{Endpoint, EndpointProto},
     engine::Engine,
     event::{ConnectionEvent, DataEvent, EngineObserver, ErrorEvent, SocketEngineEvent},
 };
@@ -220,20 +220,19 @@ impl ChatModel {
     }
 
     pub fn send_to_peer(&mut self, text: &String, room: &String, endpoint: &Endpoint) {
-        let chatmsg = ChatMessage::new_to_send(&self.localpeer.uuid, room, text, Some(endpoint.clone()));
+        let chatmsg = ChatMessage::new_to_send(&self.localpeer.uuid, room, text, endpoint.clone());
         let sending_uuid = chatmsg.uuid.clone();
-        
-        let local_endpoint = self.find_local_endpoint_for_protocol(endpoint)
+
+        let local_endpoint = self
+            .find_local_endpoint_for_protocol(endpoint.proto.clone())
             .unwrap_or_else(|| self.localpeer.endpoints[0].clone());
- 
-        
+
         self.pending_send_list
             .push((MessageType::Text, sending_uuid.clone(), None));
         self.add_message(chatmsg.clone());
 
         if let Some(engine) = &mut self.network_engine {
-            let bytes_res = ProtoMessage::new_text(&chatmsg, local_endpoint)
-                .encode_to_vec();
+            let bytes_res = ProtoMessage::new_text(&chatmsg, local_endpoint).encode_to_vec();
             match bytes_res {
                 Ok(bytes) => {
                     let _ = engine.send_async(endpoint.clone(), bytes, sending_uuid);
@@ -248,9 +247,10 @@ impl ChatModel {
     }
 
     pub fn send_ack_to_peer(&mut self, for_msg: &ChatMessage, target_endpoint: Endpoint) {
-        let local_endpoint = self.find_local_endpoint_for_protocol(&target_endpoint)
+        let local_endpoint = self
+            .find_local_endpoint_for_protocol(target_endpoint.proto.clone())
             .unwrap_or_else(|| self.localpeer.endpoints[0].clone());
-            
+
         let proto_msg = ProtoMessage::new_ack(
             for_msg,
             self.localpeer.uuid.clone(),
@@ -335,7 +335,6 @@ impl ChatModel {
             }
             return;
         }
-
     }
 
     fn mark_pending_message_as_failed(&mut self, target_uuid: &String) {
@@ -364,17 +363,13 @@ impl ChatModel {
                 }
             }
         }
-
     }
 
-    fn find_local_endpoint_for_protocol(&self, target_endpoint: &Endpoint) -> Option<Endpoint> {
-        self.localpeer.endpoints.iter()
-            .find(|ep| match (ep, target_endpoint) {
-                (Endpoint::Tcp(_), Endpoint::Tcp(_)) => true,
-                (Endpoint::Udp(_), Endpoint::Udp(_)) => true,
-                (Endpoint::Bp(_), Endpoint::Bp(_)) => true,
-                _ => false,
-            })
+    fn find_local_endpoint_for_protocol(&self, target_proto: EndpointProto) -> Option<Endpoint> {
+        self.localpeer
+            .endpoints
+            .iter()
+            .find(|ep| ep.proto == target_proto)
             .cloned()
     }
 }
