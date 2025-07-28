@@ -14,8 +14,8 @@ pub enum ChatAppInfoEvent {
     Sending(ChatMessage),
     Sent(ChatMessage),
     Received(ChatMessage),
-    AckSent(String, String),
-    AckReceived(String),
+    AckSent(ChatMessage, String),
+    AckReceived(ChatMessage),
 }
 
 #[derive(Clone, Debug)]

@@ -268,7 +268,7 @@ impl ChatModel {
                     let _ =
                         engine.send_async(target_endpoint.clone(), bytes, proto_msg.uuid.clone());
                     self.notify_observers(ChatAppEvent::Info(ChatAppInfoEvent::AckSent(
-                        for_msg.uuid.clone(),
+                        for_msg.clone(),
                         target_endpoint.to_string(),
                     )));
                 }
@@ -297,9 +297,7 @@ impl ChatModel {
             .db
             .mark_as(&message_uuid, MarkIntent::Acked(Utc::now()))
         {
-            self.notify_observers(ChatAppEvent::Info(ChatAppInfoEvent::AckReceived(
-                message.uuid.clone(),
-            )));
+            self.notify_observers(ChatAppEvent::Info(ChatAppInfoEvent::AckReceived(message)));
         } else {
             self.notify_observers(ChatAppEvent::Error(ChatAppErrorEvent::MessageNotFound(
                 format!("Received ack for unknown message: {}", message_uuid),

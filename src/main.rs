@@ -4,7 +4,7 @@ use std::{
 };
 
 use dtchat_backend::{
-    db::simple_vec::SimpleVecDB,
+    db::{simple_vec::SimpleVecDB, MarkIntent},
     dtchat::{ChatModel, Peer},
     event::{
         AppEventObserver, ChatAppErrorEvent, ChatAppEvent, ChatAppInfoEvent, NetworkErrorEvent,
@@ -99,10 +99,12 @@ impl TerminalScreen {
         }
     }
 
-    fn update_message_status(&mut self, msg_id: &str, new_status: MessageStatus) {
+    fn update_message_status(&mut self, msg: ChatMessage) {
+        println!("{:?}", msg.get_shipment_status_otp());
         for m in &mut self.messages {
-            if m.uuid == msg_id || m.uuid.starts_with(msg_id) {
-                m.status = new_status;
+            if m.uuid == msg.uuid || m.uuid.starts_with(&msg.uuid) {
+                *m = msg;
+                break;
             }
         }
     }
@@ -136,9 +138,9 @@ impl TerminalScreen {
                 };
 
                 // Nouveau format : [<STATUS>] [acked_time:send_time] <message>
-                let acked_time_str = match msg.send_completed {
+                let acked_time_str = match msg.receive_time {
                     Some(t) => t.format("%H:%M:%S").to_string(),
-                    None => String::new(),
+                    None => "???".to_string(),
                 };
 
                 let send_time_str: String = msg.send_time.format("%H:%M:%S").to_string();
@@ -323,17 +325,12 @@ impl AppEventObserver for TerminalScreen {
                     }
                 }
                 ChatAppInfoEvent::Sent(sent_message) => {
-                    self.update_message_status(&sent_message.uuid, MessageStatus::Sent);
-                    for m in &mut self.messages {
-                        if m.uuid == sent_message.uuid {
-                            m.send_completed = sent_message.send_completed;
-                            break;
-                        }
-                    }
+                    self.update_message_status(sent_message);
                 }
                 ChatAppInfoEvent::Received(chat_message) => {
-                    let msg_id = safe_message_id_display(&chat_message.uuid);
-                    self.update_message_status(&chat_message.uuid, MessageStatus::Received);
+                    let uuid = chat_message.uuid.clone();
+                    let msg_id = safe_message_id_display(&uuid);
+                    self.update_message_status(chat_message.clone());
                     self.add_app_event(EventLevel::Info, format!("Message {} received", msg_id));
                     if !self.messages.iter().any(|m| m.uuid == chat_message.uuid) {
                         self.messages.push_back(chat_message);
@@ -342,16 +339,18 @@ impl AppEventObserver for TerminalScreen {
                         }
                     }
                 }
-                ChatAppInfoEvent::AckSent(uuid, _peer_uuid) => {
-                    self.update_message_status(&uuid, MessageStatus::ReceivedByPeer);
+                ChatAppInfoEvent::AckSent(msg, _peer_uuid) => {
+                    let uuid = msg.uuid.clone();
+                    self.update_message_status(msg);
                     let msg_id = safe_message_id_display(&uuid);
                     self.add_app_event(
                         EventLevel::Info,
                         format!("Ack sent for message {}", msg_id),
                     );
                 }
-                ChatAppInfoEvent::AckReceived(uuid) => {
-                    self.update_message_status(&uuid, MessageStatus::ReceivedByPeer);
+                ChatAppInfoEvent::AckReceived(msg) => {
+                    let uuid = msg.uuid.clone();
+                    self.update_message_status(msg);
                     let msg_id = safe_message_id_display(&uuid);
                     self.add_app_event(
                         EventLevel::Info,
