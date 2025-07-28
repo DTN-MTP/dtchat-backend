@@ -20,6 +20,12 @@ impl ChatDataBase for SimpleVecDB {
         todo!()
     }
 
+    fn get_last_messages(&self, count: usize) -> Vec<ChatMessage> {
+        let len = self.messages.len();
+        let start = if count > len { 0 } else { len - count };
+        self.messages[start..].to_vec()
+    }
+
     fn add_message(&mut self, msg: ChatMessage) {
         self.messages.push(msg);
     }

@@ -143,7 +143,7 @@ impl TerminalScreen {
 
                 let send_time_str: String = msg.send_time.format("%H:%M:%S").to_string();
 
-                let time_display = format!("[{}:{}]", acked_time_str, send_time_str);
+                let time_display = format!("[{}:{}]", send_time_str, acked_time_str);
 
                 let msg_color = if msg.sender_uuid == self.local_uuid {
                     "\x1b[37m"

@@ -310,6 +310,9 @@ impl ChatModel {
     pub fn get_messages_filtered(&mut self) {
         self.db.get_messages_filtered();
     }
+    pub fn get_last_messages(&mut self, count: usize) -> Vec<ChatMessage> {
+        self.db.get_last_messages(count)
+    }
 
     pub fn get_all_messages(&self) -> Vec<ChatMessage> {
         self.db.get_all_messages()

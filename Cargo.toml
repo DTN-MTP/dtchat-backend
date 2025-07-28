@@ -11,3 +11,6 @@ prost = "0.14.1"
 
 [build-dependencies]
 prost-build = "0.14.1"
+
+[features]
+with_delay = ["socket-engine/with_delay"]
