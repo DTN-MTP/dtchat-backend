@@ -4,7 +4,7 @@ use std::{
 };
 
 use dtchat_backend::{
-    db::{simple_vec::SimpleVecDB, MarkIntent},
+    db::simple_vec::SimpleVecDB,
     dtchat::{ChatModel, Peer},
     event::{
         AppEventObserver, ChatAppErrorEvent, ChatAppEvent, ChatAppInfoEvent, NetworkErrorEvent,
@@ -444,7 +444,7 @@ fn main() {
     };
     let chat_model = Arc::new(Mutex::new(ChatModel::new(
         local_peer.clone(),
-        vec![distant_peer],
+        vec![distant_peer.clone()],
         Box::new(SimpleVecDB::default()),
     )));
     let mut network_engine = Engine::new();
@@ -469,6 +469,7 @@ fn main() {
                 chat_model.lock().unwrap().send_to_peer(
                     &input.to_string(),
                     &"room".to_string(),
+                    distant_peer.uuid.clone(),
                     &distant_ep,
                 );
             }
