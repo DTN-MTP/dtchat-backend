@@ -1,4 +1,4 @@
-use std::{collections::HashMap, env, io, sync::Arc};
+use std::{collections::HashMap, env, io};
 
 use a_sabr::{
     bundle::Bundle,

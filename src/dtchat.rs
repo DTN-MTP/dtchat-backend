@@ -1,7 +1,4 @@
-use std::{
-    fmt::format,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
 use socket_engine::{
@@ -9,7 +6,7 @@ use socket_engine::{
     engine::Engine,
     event::{ConnectionEvent, DataEvent, EngineObserver, ErrorEvent, SocketEngineEvent},
 };
-use uuid::{timestamp, Uuid};
+use uuid::Uuid;
 
 use crate::{
     db::{ChatDataBase, MarkIntent},
@@ -18,7 +15,7 @@ use crate::{
         NetworkEvent,
     },
     message::{ChatMessage, SortStrategy},
-    prediction::{self, PredictionConfig},
+    prediction::{PredictionConfig},
     proto::{proto_message::MsgType, ProtoMessage},
 };
 
@@ -190,6 +187,9 @@ impl ChatModel {
                 format!("No prediction: {}", e),
             ))),
         }
+    }
+    pub fn is_pbat_enabled(&self)-> bool {
+        self.a_sabr.is_some()
     }
 
     pub fn treat_proto_message(&mut self, proto_msg: ProtoMessage) {
