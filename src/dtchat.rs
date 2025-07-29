@@ -238,6 +238,7 @@ impl ChatModel {
         room: &String,
         peer_uuid: String,
         endpoint: &Endpoint,
+        try_prediction: bool,
     ) {
         let mut chatmsg =
             ChatMessage::new_to_send(&self.localpeer.uuid, room, text, endpoint.clone());
@@ -267,20 +268,21 @@ impl ChatModel {
                 }
             }
         }
+        if try_prediction {
+            let bp_local_endpoint_opt = self.find_local_endpoint_for_protocol(EndpointProto::Bp);
+            let bp_peer_endpoint_opt =
+                self.find_peer_endpoint_for_protocol(peer_uuid, EndpointProto::Bp);
 
-        let bp_local_endpoint_opt = self.find_local_endpoint_for_protocol(EndpointProto::Bp);
-        let bp_peer_endpoint_opt =
-            self.find_peer_endpoint_for_protocol(peer_uuid, EndpointProto::Bp);
-
-        if let (Some(src_eid), Some(dest_eid)) = (bp_local_endpoint_opt, bp_peer_endpoint_opt) {
-            // In theory we should add transport overhead..
-            if let (Some(size_sent), Some(a_sabr)) = (size_serialized, &mut self.a_sabr) {
-                if let Ok(arrival_time) = a_sabr.predict(
-                    src_eid.endpoint.as_str(),
-                    dest_eid.endpoint.as_str(),
-                    size_sent as f64,
-                ) {
-                    chatmsg.predicted_arrival_time = Some(arrival_time);
+            if let (Some(src_eid), Some(dest_eid)) = (bp_local_endpoint_opt, bp_peer_endpoint_opt) {
+                // In theory we should add transport overhead..
+                if let (Some(size_sent), Some(a_sabr)) = (size_serialized, &mut self.a_sabr) {
+                    if let Ok(arrival_time) = a_sabr.predict(
+                        src_eid.endpoint.as_str(),
+                        dest_eid.endpoint.as_str(),
+                        size_sent as f64,
+                    ) {
+                        chatmsg.predicted_arrival_time = Some(arrival_time);
+                    }
                 }
             }
         }

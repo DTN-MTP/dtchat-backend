@@ -471,6 +471,7 @@ fn main() {
                     &"room".to_string(),
                     distant_peer.uuid.clone(),
                     &distant_ep,
+                    false,
                 );
             }
         }
