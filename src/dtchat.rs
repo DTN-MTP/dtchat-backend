@@ -175,7 +175,7 @@ impl ChatModel {
     }
     pub fn start(&mut self, engine: Engine) {
         self.network_engine = Some(engine);
-        if let Some(eng) = &self.network_engine {
+        if let Some(eng) = &mut self.network_engine {
             for endpoint in &self.localpeer.endpoints {
                 eng.start_listener_async(endpoint.clone());
             }
@@ -259,7 +259,7 @@ impl ChatModel {
             match bytes_res {
                 Ok(bytes) => {
                     size_serialized = Some(bytes.len());
-                    let _ = engine.send_async(endpoint.clone(), bytes, sending_uuid);
+                    let _ = engine.send_async(local_endpoint, endpoint.clone(), bytes, sending_uuid);
                 }
                 Err(err) => {
                     self.notify_observers(ChatAppEvent::Error(ChatAppErrorEvent::ProtocolEncode(
@@ -297,7 +297,7 @@ impl ChatModel {
         let proto_msg = ProtoMessage::new_ack(
             for_msg,
             self.localpeer.uuid.clone(),
-            local_endpoint,
+            local_endpoint.clone(),
             Utc::now().timestamp_millis(),
         );
         self.pending_send_list.push((
@@ -309,7 +309,7 @@ impl ChatModel {
             match proto_msg.encode_to_vec() {
                 Ok(bytes) => {
                     let _ =
-                        engine.send_async(target_endpoint.clone(), bytes, proto_msg.uuid.clone());
+                        engine.send_async(local_endpoint, target_endpoint.clone(), bytes, proto_msg.uuid.clone());
                     self.notify_observers(ChatAppEvent::Info(ChatAppInfoEvent::AckSent(
                         for_msg.clone(),
                         target_endpoint.to_string(),
