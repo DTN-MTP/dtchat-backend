@@ -176,8 +176,13 @@ impl ChatModel {
     pub fn start(&mut self, engine: Engine) {
         self.network_engine = Some(engine);
         if let Some(eng) = &mut self.network_engine {
-            for endpoint in &self.localpeer.endpoints {
-                eng.start_listener_async(endpoint.clone());
+            for endpoint in &mut self.localpeer.endpoints {
+               let res = eng.start_listener_async(endpoint.clone());
+               match res {
+                    Ok(_) => (),
+                    Err(_e) => println!("Socket creation issue"),
+                 }
+
             }
         }
         let a_sabr_res = PredictionConfig::try_init();
