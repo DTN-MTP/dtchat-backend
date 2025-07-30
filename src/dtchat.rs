@@ -15,7 +15,7 @@ use crate::{
         NetworkEvent,
     },
     message::{ChatMessage, SortStrategy},
-    prediction::{PredictionConfig},
+    prediction::PredictionConfig,
     proto::{proto_message::MsgType, ProtoMessage},
 };
 
@@ -177,12 +177,7 @@ impl ChatModel {
         self.network_engine = Some(engine);
         if let Some(eng) = &mut self.network_engine {
             for endpoint in &mut self.localpeer.endpoints {
-               let res = eng.start_listener_async(endpoint.clone());
-               match res {
-                    Ok(_) => (),
-                    Err(_e) => println!("Socket creation issue"),
-                 }
-
+                eng.start_listener_async(endpoint.clone());
             }
         }
         let a_sabr_res = PredictionConfig::try_init();
@@ -193,7 +188,7 @@ impl ChatModel {
             ))),
         }
     }
-    pub fn is_pbat_enabled(&self)-> bool {
+    pub fn is_pbat_enabled(&self) -> bool {
         self.a_sabr.is_some()
     }
 
@@ -264,7 +259,7 @@ impl ChatModel {
             match bytes_res {
                 Ok(bytes) => {
                     size_serialized = Some(bytes.len());
-                    let _ = engine.send_async(local_endpoint, endpoint.clone(), bytes, sending_uuid);
+                    engine.send_async(local_endpoint, endpoint.clone(), bytes, sending_uuid);
                 }
                 Err(err) => {
                     self.notify_observers(ChatAppEvent::Error(ChatAppErrorEvent::ProtocolEncode(
@@ -313,8 +308,12 @@ impl ChatModel {
         if let Some(engine) = &mut self.network_engine {
             match proto_msg.encode_to_vec() {
                 Ok(bytes) => {
-                    let _ =
-                        engine.send_async(local_endpoint, target_endpoint.clone(), bytes, proto_msg.uuid.clone());
+                    engine.send_async(
+                        local_endpoint,
+                        target_endpoint.clone(),
+                        bytes,
+                        proto_msg.uuid.clone(),
+                    );
                     self.notify_observers(ChatAppEvent::Info(ChatAppInfoEvent::AckSent(
                         for_msg.clone(),
                         target_endpoint.to_string(),
