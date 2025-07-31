@@ -1,5 +1,5 @@
 use crate::message::ChatMessage;
-use socket_engine::event::{ConnectionEvent, DataEvent, ErrorEvent};
+pub use socket_engine::event::{ConnectionEvent, DataEvent, ErrorEvent};
 
 #[derive(Clone, Debug)]
 pub enum ChatAppEvent {

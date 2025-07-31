@@ -245,8 +245,7 @@ impl ChatModel {
         let sending_uuid = chatmsg.uuid.clone();
 
         let local_endpoint = self
-            .find_local_endpoint_for_protocol(endpoint.proto.clone())
-            .unwrap_or_else(|| self.localpeer.endpoints[0].clone());
+            .find_local_endpoint_for_protocol(endpoint.proto.clone());
 
         self.pending_send_list
             .push((MessageType::Text, sending_uuid.clone(), None));
@@ -291,8 +290,8 @@ impl ChatModel {
 
     pub fn send_ack_to_peer(&mut self, for_msg: &ChatMessage, target_endpoint: Endpoint) {
         let local_endpoint = self
-            .find_local_endpoint_for_protocol(target_endpoint.proto.clone())
-            .unwrap_or_else(|| self.localpeer.endpoints[0].clone());
+            .find_local_endpoint_for_protocol(target_endpoint.proto.clone());
+
 
         let proto_msg = ProtoMessage::new_ack(
             for_msg,
