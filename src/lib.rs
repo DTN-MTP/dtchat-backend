@@ -9,4 +9,7 @@ pub mod message;
 pub mod prediction;
 pub mod proto_message;
 
-pub use socket_engine::{engine::Engine,endpoint::{Endpoint, EndpointProto}};
+pub use socket_engine::{
+    endpoint::{Endpoint, EndpointProto},
+    engine::Engine,
+};

@@ -76,31 +76,23 @@ impl EngineObserver for ChatModel {
                     };
                 }
                 DataEvent::Sent {
-                    message_id,
+                    token,
                     to,
                     bytes_sent,
                 } => {
                     self.notify_observers(ChatAppEvent::SocketEngineInfo(NetworkEvent::Data(
                         DataEvent::Sent {
-                            message_id: message_id.clone(),
+                            token: token.clone(),
                             to,
                             bytes_sent,
                         },
                     )));
 
-                    self.mark_as_sent(&message_id);
+                    self.mark_as_sent(&token);
                 }
-                DataEvent::Sending {
-                    message_id,
-                    to,
-                    bytes,
-                } => {
+                DataEvent::Sending { token, to, bytes } => {
                     self.notify_observers(ChatAppEvent::SocketEngineInfo(NetworkEvent::Data(
-                        DataEvent::Sending {
-                            message_id: message_id.clone(),
-                            to,
-                            bytes,
-                        },
+                        DataEvent::Sending { token, to, bytes },
                     )));
                 }
             },
@@ -244,8 +236,7 @@ impl ChatModel {
             ChatMessage::new_to_send(&self.localpeer.uuid, room, text, endpoint.clone());
         let sending_uuid = chatmsg.uuid.clone();
 
-        let local_endpoint = self
-            .find_local_endpoint_for_protocol(endpoint.proto.clone());
+        let local_endpoint = self.find_local_endpoint_for_protocol(endpoint.proto.clone());
 
         self.pending_send_list
             .push((MessageType::Text, sending_uuid.clone(), None));
@@ -289,9 +280,7 @@ impl ChatModel {
     }
 
     pub fn send_ack_to_peer(&mut self, for_msg: &ChatMessage, target_endpoint: Endpoint) {
-        let local_endpoint = self
-            .find_local_endpoint_for_protocol(target_endpoint.proto.clone());
-
+        let local_endpoint = self.find_local_endpoint_for_protocol(target_endpoint.proto.clone());
 
         let proto_msg = ProtoMessage::new_ack(
             for_msg,

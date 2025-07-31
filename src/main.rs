@@ -250,7 +250,7 @@ impl AppEventObserver for TerminalScreen {
                             format!("Received {} bytes from {}", data.len(), from.to_string()),
                         ),
                         DataEvent::Sent {
-                            message_id,
+                            token,
                             to,
                             bytes_sent,
                         } => (
@@ -259,20 +259,16 @@ impl AppEventObserver for TerminalScreen {
                                 "Sent {} bytes to {} (token: {})",
                                 bytes_sent,
                                 to.to_string(),
-                                safe_message_id_display(&message_id)
+                                safe_message_id_display(&token)
                             ),
                         ),
-                        DataEvent::Sending {
-                            message_id,
-                            to,
-                            bytes,
-                        } => (
+                        DataEvent::Sending { token, to, bytes } => (
                             EventLevel::Info,
                             format!(
                                 "Sending {} bytes to {} (token: {})",
                                 bytes,
                                 to.to_string(),
-                                safe_message_id_display(&message_id)
+                                safe_message_id_display(&token)
                             ),
                         ),
                     },
