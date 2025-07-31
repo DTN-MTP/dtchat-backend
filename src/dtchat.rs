@@ -119,12 +119,12 @@ impl EngineObserver for ChatModel {
             },
             SocketEngineEvent::Error(error_event) => match &error_event {
                 ErrorEvent::ConnectionFailed {
-                    endpoint,
+                    endpoint: _,
                     reason: _,
                     token,
                 } => {
-                    self.notify_observers(ChatAppEvent::Error(
-                        ChatAppErrorEvent::HostNotReachable(format!("{}", endpoint)),
+                    self.notify_observers(ChatAppEvent::SocketEngineError(
+                        NetworkErrorEvent::SocketError(error_event.clone()),
                     ));
 
                     self.mark_pending_message_as_failed(token);
@@ -134,6 +134,9 @@ impl EngineObserver for ChatModel {
                     reason: _,
                     token,
                 } => {
+                    self.notify_observers(ChatAppEvent::SocketEngineError(
+                        NetworkErrorEvent::SocketError(error_event.clone()),
+                    ));
                     self.mark_pending_message_as_failed(token);
                 }
                 ErrorEvent::ReceiveFailed { .. } => {

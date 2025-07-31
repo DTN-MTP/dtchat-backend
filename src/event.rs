@@ -38,7 +38,6 @@ pub enum ChatAppErrorEvent {
     PeerNotFound(String),
     NoEngineAttached,
     InternalError(String),
-    HostNotReachable(String),
 }
 
 pub trait AppEventObserver: Send + Sync {

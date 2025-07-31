@@ -377,9 +377,6 @@ impl AppEventObserver for TerminalScreen {
                     ChatAppErrorEvent::InternalError(details) => {
                         format!("Internal error: {}", details)
                     }
-                    ChatAppErrorEvent::HostNotReachable(endpoint) => {
-                        format!("Host not reachable: {}", endpoint)
-                    }
                 };
 
                 self.add_app_event(EventLevel::Error, error_text);
