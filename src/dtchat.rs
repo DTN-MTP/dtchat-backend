@@ -1,6 +1,5 @@
 use std::sync::{Arc, Mutex};
 
-use chrono::{DateTime, Utc};
 use socket_engine::{
     endpoint::{Endpoint, EndpointProto},
     engine::Engine,
@@ -17,6 +16,7 @@ use crate::{
     message::{ChatMessage, SortStrategy},
     prediction::PredictionConfig,
     proto::{proto_message::MsgType, ProtoMessage},
+    time::DTChatTime,
 };
 
 pub fn generate_uuid() -> String {
@@ -289,7 +289,7 @@ impl ChatModel {
             for_msg,
             self.localpeer.uuid.clone(),
             local_endpoint.clone(),
-            Utc::now().timestamp_millis(),
+            DTChatTime::now().timestamp_millis(),
         );
         self.pending_send_list.push((
             MessageType::Ack,
@@ -331,7 +331,7 @@ impl ChatModel {
     }
 
     fn mark_as_acked(&mut self, message_uuid: &String, timestamp: i64) {
-        if let Some(received_at) = DateTime::from_timestamp_millis(timestamp) {
+        if let Some(received_at) = DTChatTime::from_timestamp_millis(timestamp) {
             if let Some(message) = self
                 .db
                 .mark_as(&message_uuid, MarkIntent::Acked(received_at))
@@ -374,7 +374,10 @@ impl ChatModel {
                 return;
             }
 
-            if let Some(message) = self.db.mark_as(&target_uuid, MarkIntent::Sent(Utc::now())) {
+            if let Some(message) = self
+                .db
+                .mark_as(&target_uuid, MarkIntent::Sent(DTChatTime::now()))
+            {
                 self.notify_observers(ChatAppEvent::Info(ChatAppInfoEvent::Sent(message)));
             } else {
                 self.notify_observers(ChatAppEvent::Error(ChatAppErrorEvent::MessageNotFound(

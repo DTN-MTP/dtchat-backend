@@ -1,11 +1,9 @@
-use chrono::{DateTime, Utc};
-
-use crate::message::ChatMessage;
+use crate::{message::ChatMessage, time::DTChatTime};
 pub mod simple_vec;
 
 pub enum MarkIntent {
-    Acked(DateTime<Utc>),
-    Sent(DateTime<Utc>),
+    Acked(DTChatTime),
+    Sent(DTChatTime),
     Failed,
 }
 

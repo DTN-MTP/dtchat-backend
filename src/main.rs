@@ -139,11 +139,11 @@ impl TerminalScreen {
 
                 // Nouveau format : [<STATUS>] [acked_time:send_time] <message>
                 let acked_time_str = match msg.receive_time {
-                    Some(t) => t.format("%H:%M:%S").to_string(),
+                    Some(t) => t.ts_to_str(false, true, None),
                     None => "???".to_string(),
                 };
 
-                let send_time_str: String = msg.send_time.format("%H:%M:%S").to_string();
+                let send_time_str: String = msg.send_time.ts_to_str(false, true, None);
 
                 let time_display = format!("[{}:{}]", send_time_str, acked_time_str);
 

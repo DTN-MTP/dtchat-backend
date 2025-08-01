@@ -1,11 +1,10 @@
 use core::cmp::Ordering;
-
-use chrono::{DateTime, Utc};
 use socket_engine::endpoint::{Endpoint, EndpointProto};
 
 use crate::{
     dtchat::generate_uuid,
     proto::{ProtoMessage, TextMessage},
+    time::DTChatTime,
 };
 
 #[derive(Copy, Clone, Debug)]
@@ -23,17 +22,17 @@ pub struct ChatMessage {
     pub sender_uuid: String,
     pub room_uuid: String,
     pub text: String,
-    pub send_time: DateTime<Utc>,
-    pub send_completed: Option<DateTime<Utc>>,
-    pub predicted_arrival_time: Option<DateTime<Utc>>,
-    pub receive_time: Option<DateTime<Utc>>,
+    pub send_time: DTChatTime,
+    pub send_completed: Option<DTChatTime>,
+    pub predicted_arrival_time: Option<DTChatTime>,
+    pub receive_time: Option<DTChatTime>,
     pub status: MessageStatus,
     pub source_endpoint: Endpoint,
 }
 
-fn get_timestamps_frm_opt(datetime_opt: Option<DateTime<Utc>>) -> Option<i64> {
+fn get_timestamps_frm_opt(datetime_opt: Option<DTChatTime>) -> Option<i64> {
     if let Some(datetime) = datetime_opt {
-        return Some(datetime.timestamp_millis() as i64);
+        return Some(datetime.timestamp_millis());
     }
     None
 }
@@ -50,7 +49,7 @@ impl ChatMessage {
             sender_uuid: sender_uuid.clone(),
             room_uuid: room_uuid.clone(),
             text: text.clone(),
-            send_time: Utc::now(),
+            send_time: DTChatTime::now(),
             send_completed: None,
             predicted_arrival_time: None,
             receive_time: None,
@@ -60,7 +59,7 @@ impl ChatMessage {
     }
 
     pub fn new_received(proto_msg: &ProtoMessage, text_part: &TextMessage) -> Option<Self> {
-        if let Some(datetime) = DateTime::from_timestamp_millis(proto_msg.timestamp) {
+        if let Some(datetime) = DTChatTime::from_timestamp_millis(proto_msg.timestamp) {
             if let Some(source_endpoint) = Endpoint::from_str(&proto_msg.source_endpoint).ok() {
                 return Some(ChatMessage {
                     uuid: proto_msg.uuid.clone(),
@@ -70,7 +69,7 @@ impl ChatMessage {
                     send_time: datetime.clone(),
                     send_completed: Some(datetime),
                     predicted_arrival_time: None,
-                    receive_time: Some(Utc::now()),
+                    receive_time: Some(DTChatTime::now()),
                     status: MessageStatus::Received,
                     source_endpoint,
                 });
@@ -79,9 +78,7 @@ impl ChatMessage {
         None
     }
 
-    pub fn get_shipment_status_otp(
-        &self,
-    ) -> (DateTime<Utc>, Option<DateTime<Utc>>, Option<DateTime<Utc>>) {
+    pub fn get_shipment_status_otp(&self) -> (DTChatTime, Option<DTChatTime>, Option<DTChatTime>) {
         return (
             self.send_time,
             self.predicted_arrival_time,

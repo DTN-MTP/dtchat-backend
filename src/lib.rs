@@ -8,6 +8,7 @@ pub mod event;
 pub mod message;
 pub mod prediction;
 pub mod proto_message;
+pub mod time;
 
 pub use socket_engine::{
     endpoint::{Endpoint, EndpointProto},

@@ -8,7 +8,8 @@ use a_sabr::{
     routing::{aliases::build_generic_router, Router},
     types::{Date, NodeID},
 };
-use chrono::{DateTime, Utc};
+
+use crate::time::DTChatTime;
 
 pub struct PredictionConfig {
     ion_to_node_id: HashMap<String, NodeID>,
@@ -23,13 +24,6 @@ fn extract_ion_id_from_bp_address(bp_address: &str) -> String {
         }
     }
     bp_address.to_string()
-}
-
-pub fn f64_to_utc(timestamp: f64) -> DateTime<Utc> {
-    let secs = timestamp.trunc() as i64;
-    let nsecs = ((timestamp.fract()) * 1_000_000_000.0).round() as u32;
-    let naive = DateTime::from_timestamp(secs, nsecs).expect("Invalid timestamp");
-    DateTime::from_naive_utc_and_offset(naive.naive_utc(), Utc)
 }
 
 impl PredictionConfig {
@@ -54,8 +48,8 @@ impl PredictionConfig {
 
         let router: Box<dyn Router<NoManagement, EVLManager> + Send + Sync> =
             unsafe { std::mem::transmute(router) };
-
-        let cp_start_time = Utc::now().timestamp() as f64;
+        // in seconds
+        let cp_start_time = DTChatTime::now().timestamp_millis() as f64 / 1000.0;
 
         Ok(PredictionConfig {
             ion_to_node_id: node_index_map,
@@ -73,7 +67,7 @@ impl PredictionConfig {
         source_eid: &str,
         dest_eid: &str,
         message_size: f64,
-    ) -> io::Result<DateTime<Utc>> {
+    ) -> io::Result<DTChatTime> {
         let source_ion = extract_ion_id_from_bp_address(source_eid);
         let dest_ion = extract_ion_id_from_bp_address(dest_eid);
 
@@ -100,8 +94,9 @@ impl PredictionConfig {
         };
 
         let excluded_nodes = vec![];
-
-        let cp_send_time = Utc::now().timestamp() as f64 - self.cp_start_time;
+        // in seconds
+        let cp_send_time =
+            DTChatTime::now().timestamp_millis() as f64 / 1000.0 - self.cp_start_time;
 
         match self
             .router
@@ -129,7 +124,8 @@ impl PredictionConfig {
                         // );
                         // println!("CP send time: {}", cp_send_time);
                         // println!("Delay in seconds: {}", delay);
-                        return Ok(f64_to_utc(delay + self.cp_start_time));
+                        //  return Ok(f64_to_utc(delay + self.cp_start_time));
+                        return Ok(DTChatTime::from_seconds(delay + self.cp_start_time));
                     }
                 }
                 Err(io::Error::other(
