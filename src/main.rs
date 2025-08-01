@@ -11,6 +11,7 @@ use dtchat_backend::{
         NetworkEvent,
     },
     message::{ChatMessage, MessageStatus},
+    time::DTChatTime,
 };
 use socket_engine::{
     endpoint::Endpoint,
@@ -18,7 +19,6 @@ use socket_engine::{
     event::{ConnectionEvent, DataEvent},
 };
 
-use chrono::{DateTime, Utc};
 use std::collections::VecDeque;
 use std::io::{self, Write};
 
@@ -43,7 +43,7 @@ pub enum EventLevel {
 pub struct EventWithLevel {
     level: EventLevel,
     message: String,
-    timestamp: DateTime<Utc>,
+    timestamp: DTChatTime,
 }
 
 pub struct TerminalScreen {
@@ -75,7 +75,7 @@ impl TerminalScreen {
         let event = EventWithLevel {
             level,
             message,
-            timestamp: Utc::now(),
+            timestamp: DTChatTime::now(),
         };
         self.network_events.push_back(event);
 
@@ -89,7 +89,7 @@ impl TerminalScreen {
         let event = EventWithLevel {
             level,
             message,
-            timestamp: Utc::now(),
+            timestamp: DTChatTime::now(),
         };
         self.app_events.push_back(event);
 
@@ -139,11 +139,12 @@ impl TerminalScreen {
 
                 // Nouveau format : [<STATUS>] [acked_time:send_time] <message>
                 let acked_time_str = match msg.receive_time {
-                    Some(t) => t.ts_to_str(false, true, None),
+                    Some(t) => t.ts_to_str(false, true, None, &chrono::Local),
                     None => "???".to_string(),
                 };
 
-                let send_time_str: String = msg.send_time.ts_to_str(false, true, None);
+                let send_time_str: String =
+                    msg.send_time.ts_to_str(false, true, None, &chrono::Local);
 
                 let time_display = format!("[{}:{}]", send_time_str, acked_time_str);
 
@@ -186,7 +187,7 @@ impl TerminalScreen {
                     EventLevel::Error => ("[ERROR]", "\x1b[31m"),   // Rouge
                 };
 
-                let time_str = event.timestamp.format("%H:%M:%S").to_string();
+                let time_str = event.timestamp.ts_to_str(false, true, None, &chrono::Local);
 
                 println!(
                     "  {}{} [{}] {}\x1b[0m",
@@ -212,7 +213,7 @@ impl TerminalScreen {
                     EventLevel::Error => ("[ERROR]", "\x1b[31m"),   // Rouge
                 };
 
-                let time_str = event.timestamp.format("%H:%M:%S").to_string();
+                let time_str = event.timestamp.ts_to_str(false, true, None, &chrono::Local);
 
                 println!(
                     "  {}{} [{}] {}\x1b[0m",

@@ -1,4 +1,4 @@
-use chrono::{DateTime, NaiveDate, Timelike, Utc};
+use chrono::{DateTime, NaiveDate, TimeZone, Timelike, Utc};
 
 #[derive(Clone, Debug, Copy, Eq, PartialEq)]
 pub struct DTChatTime {
@@ -35,24 +35,32 @@ impl DTChatTime {
         return self.date_time.date_naive();
     }
 
-    pub fn mins_hours(&self) -> (u32, u32) {
+    pub fn mins_hours<Tz: TimeZone>(&self, tz: &Tz) -> (u32, u32) {
+        let with_time_zone: DateTime<Tz> = self.date_time.with_timezone(tz);
         return (
-            Timelike::minute(&self.date_time),
-            Timelike::hour(&self.date_time),
+            Timelike::minute(&with_time_zone),
+            Timelike::hour(&with_time_zone),
         );
     }
 
-    pub fn ts_to_str(&self, date: bool, time: bool, separator: Option<String>) -> String {
-        let mut res = "".to_string();
+    pub fn ts_to_str<Tz>(&self, date: bool, time: bool, separator: Option<&str>, tz: &Tz) -> String
+    where
+        Tz: TimeZone,
+        Tz::Offset: std::fmt::Display,
+    {
+        let with_time_zone: DateTime<Tz> = self.date_time.with_timezone(tz);
+        let mut res = String::new();
+
         if date {
-            res += &self.date_time.format("%Y-%m-%d").to_string();
+            res += &with_time_zone.format("%Y-%m-%d").to_string();
         }
-        if let Some(sep) = separator {
-            res += &sep;
+        if date && time {
+            res += separator.unwrap_or(" ");
         }
         if time {
-            res += &self.date_time.format("%H:%M:%S").to_string()
+            res += &with_time_zone.format("%H:%M:%S").to_string();
         }
+
         res
     }
 }
