@@ -1,33 +1,44 @@
 use crate::{
     db::{ChatDataBase, MarkIntent},
+    dtchat::Peer,
     message::{ChatMessage, MessageStatus},
 };
 
 pub struct SimpleVecDB {
     messages: Vec<ChatMessage>,
+    localpeer: Peer,
+    peers: Vec<Peer>,
 }
 
-impl Default for SimpleVecDB {
-    fn default() -> Self {
+impl SimpleVecDB {
+    pub fn new(messages: Vec<ChatMessage>, localpeer: Peer, peers: Vec<Peer>) -> Self {
         Self {
-            messages: Vec::new(),
+            messages,
+            localpeer,
+            peers,
         }
     }
 }
 
 impl ChatDataBase for SimpleVecDB {
-    fn get_messages_filtered(&mut self) {
-        todo!()
+    // Peers
+    fn get_other_peers(&self) -> Vec<crate::dtchat::Peer> {
+        return self.peers.clone();
+    }
+    fn get_localpeer(&self) -> crate::dtchat::Peer {
+        return self.localpeer.clone();
     }
 
+    // Messages
     fn get_last_messages(&self, count: usize) -> Vec<ChatMessage> {
         let len = self.messages.len();
         let start = if count > len { 0 } else { len - count };
         self.messages[start..].to_vec()
     }
 
-    fn add_message(&mut self, msg: ChatMessage) {
+    fn add_message(&mut self, msg: ChatMessage) -> bool {
         self.messages.push(msg);
+        true
     }
 
     fn get_all_messages(&self) -> Vec<ChatMessage> {

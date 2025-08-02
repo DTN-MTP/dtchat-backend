@@ -8,6 +8,7 @@ use socket_engine::{
 use uuid::Uuid;
 
 use crate::{
+    config::AppConfig,
     db::{ChatDataBase, MarkIntent},
     event::{
         AppEventObserver, ChatAppErrorEvent, ChatAppEvent, ChatAppInfoEvent, NetworkErrorEvent,
@@ -23,11 +24,12 @@ pub fn generate_uuid() -> String {
     Uuid::new_v4().to_string()
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Peer {
     pub uuid: String,
     pub name: String,
     pub endpoints: Vec<Endpoint>,
+    pub color: String,
 }
 
 #[derive(PartialEq, Eq)]
@@ -36,15 +38,20 @@ enum MessageType {
     Text,
 }
 
+pub enum ASabrInitState {
+    Enabled(PredictionConfig),
+    Error(String),
+    Disabled,
+}
+
 pub struct ChatModel {
     pub sort_strategy: SortStrategy,
-    pub localpeer: Peer,
-    pub peers: Vec<Peer>,
+
     observers: Vec<Arc<Mutex<dyn AppEventObserver>>>,
     network_engine: Option<Engine>,
     pending_send_list: Vec<(MessageType, String, Option<String>)>, // msg_type, uuid, original_msg_id pour ACK
     db: Box<dyn ChatDataBase>,
-    a_sabr: Option<PredictionConfig>,
+    a_sabr: ASabrInitState,
 }
 
 impl EngineObserver for ChatModel {
@@ -155,36 +162,42 @@ impl EngineObserver for ChatModel {
 }
 
 impl ChatModel {
-    pub fn new(localpeer: Peer, peers: Vec<Peer>, db: Box<dyn ChatDataBase>) -> Self {
+    pub fn new() -> Self {
+        let (db, pred) = AppConfig::new();
         Self {
             // TODO: have an SQL(ite) db.rs
             sort_strategy: SortStrategy::Standard,
-            localpeer,
-            peers, // TODO Maybe move that to DB once the sender endpoint is on the protobuf msg
             observers: Vec::new(),
             network_engine: None,
             pending_send_list: Vec::new(),
             db,
-            a_sabr: None,
+            a_sabr: pred,
         }
     }
+
     pub fn start(&mut self, engine: Engine) {
         self.network_engine = Some(engine);
         if let Some(eng) = &mut self.network_engine {
-            for endpoint in &mut self.localpeer.endpoints {
+            for endpoint in &mut self.db.get_localpeer().endpoints {
                 eng.start_listener_async(endpoint.clone());
             }
         }
-        let a_sabr_res = PredictionConfig::try_init();
-        match a_sabr_res {
-            Ok(a_sabr) => self.a_sabr = Some(a_sabr),
-            Err(e) => self.notify_observers(ChatAppEvent::Error(ChatAppErrorEvent::InternalError(
-                format!("No prediction: {}", e),
-            ))),
-        }
+        let message = match &self.a_sabr {
+            ASabrInitState::Enabled(_) => "A-SABR prediction enabled".to_string(),
+            ASabrInitState::Error(err) => {
+                format!("Initialization of A-SABR prediction failed: {err}")
+            }
+            ASabrInitState::Disabled => {
+                "A-SABR prediction disabled (cp_path must be set)".to_string()
+            }
+        };
+        self.notify_observers(ChatAppEvent::Info(message));
     }
     pub fn is_pbat_enabled(&self) -> bool {
-        self.a_sabr.is_some()
+        if let ASabrInitState::Enabled(_) = self.a_sabr {
+            return true;
+        }
+        false
     }
 
     pub fn treat_proto_message(&mut self, proto_msg: ProtoMessage) {
@@ -236,7 +249,7 @@ impl ChatModel {
         try_prediction: bool,
     ) {
         let mut chatmsg =
-            ChatMessage::new_to_send(&self.localpeer.uuid, room, text, endpoint.clone());
+            ChatMessage::new_to_send(&self.db.get_localpeer().uuid, room, text, endpoint.clone());
         let sending_uuid = chatmsg.uuid.clone();
 
         let local_endpoint = self.find_local_endpoint_for_protocol(endpoint.proto.clone());
@@ -268,7 +281,9 @@ impl ChatModel {
 
             if let (Some(src_eid), Some(dest_eid)) = (bp_local_endpoint_opt, bp_peer_endpoint_opt) {
                 // In theory we should add transport overhead..
-                if let (Some(size_sent), Some(a_sabr)) = (size_serialized, &mut self.a_sabr) {
+                if let (Some(size_sent), ASabrInitState::Enabled(a_sabr)) =
+                    (size_serialized, &mut self.a_sabr)
+                {
                     if let Ok(arrival_time) = a_sabr.predict(
                         src_eid.endpoint.as_str(),
                         dest_eid.endpoint.as_str(),
@@ -287,7 +302,7 @@ impl ChatModel {
 
         let proto_msg = ProtoMessage::new_ack(
             for_msg,
-            self.localpeer.uuid.clone(),
+            self.db.get_localpeer().uuid.clone(),
             local_endpoint.clone(),
             DTChatTime::now().timestamp_millis(),
         );
@@ -305,7 +320,7 @@ impl ChatModel {
                         bytes,
                         proto_msg.uuid.clone(),
                     );
-                    self.notify_observers(ChatAppEvent::Info(ChatAppInfoEvent::AckSent(
+                    self.notify_observers(ChatAppEvent::Message(ChatAppInfoEvent::AckSent(
                         for_msg.clone(),
                         target_endpoint.to_string(),
                     )));
@@ -322,10 +337,10 @@ impl ChatModel {
     fn add_message(&mut self, new_msg: ChatMessage) {
         self.db.add_message(new_msg.clone());
 
-        let event = if self.localpeer.uuid == new_msg.sender_uuid {
-            ChatAppEvent::Info(ChatAppInfoEvent::Sending(new_msg.clone()))
+        let event = if self.db.get_localpeer().uuid == new_msg.sender_uuid {
+            ChatAppEvent::Message(ChatAppInfoEvent::Sending(new_msg.clone()))
         } else {
-            ChatAppEvent::Info(ChatAppInfoEvent::Received(new_msg.clone()))
+            ChatAppEvent::Message(ChatAppInfoEvent::Received(new_msg.clone()))
         };
         self.notify_observers(event);
     }
@@ -336,7 +351,9 @@ impl ChatModel {
                 .db
                 .mark_as(&message_uuid, MarkIntent::Acked(received_at))
             {
-                self.notify_observers(ChatAppEvent::Info(ChatAppInfoEvent::AckReceived(message)));
+                self.notify_observers(ChatAppEvent::Message(ChatAppInfoEvent::AckReceived(
+                    message,
+                )));
             } else {
                 self.notify_observers(ChatAppEvent::Error(ChatAppErrorEvent::MessageNotFound(
                     format!("Received ack for unknown message: {}", message_uuid),
@@ -352,9 +369,13 @@ impl ChatModel {
         }
     }
 
-    pub fn get_messages_filtered(&mut self) {
-        self.db.get_messages_filtered();
+    pub fn get_other_peers(&self) -> Vec<Peer> {
+        self.db.get_other_peers()
     }
+    pub fn get_localpeer(&self) -> Peer {
+        self.db.get_localpeer()
+    }
+
     pub fn get_last_messages(&mut self, count: usize) -> Vec<ChatMessage> {
         self.db.get_last_messages(count)
     }
@@ -378,7 +399,7 @@ impl ChatModel {
                 .db
                 .mark_as(&target_uuid, MarkIntent::Sent(DTChatTime::now()))
             {
-                self.notify_observers(ChatAppEvent::Info(ChatAppInfoEvent::Sent(message)));
+                self.notify_observers(ChatAppEvent::Message(ChatAppInfoEvent::Sent(message)));
             } else {
                 self.notify_observers(ChatAppEvent::Error(ChatAppErrorEvent::MessageNotFound(
                     format!("Message cannot be found in the database: {}", target_uuid),
@@ -421,7 +442,7 @@ impl ChatModel {
         peer_id: String,
         target_proto: EndpointProto,
     ) -> Option<Endpoint> {
-        for peer in &self.peers {
+        for peer in &self.db.get_other_peers() {
             if peer.uuid != peer_id {
                 continue;
             }
@@ -435,7 +456,8 @@ impl ChatModel {
     }
 
     fn find_local_endpoint_for_protocol(&self, target_proto: EndpointProto) -> Option<Endpoint> {
-        self.localpeer
+        self.db
+            .get_localpeer()
             .endpoints
             .iter()
             .find(|ep| ep.proto == target_proto)

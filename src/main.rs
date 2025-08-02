@@ -1,11 +1,7 @@
-use std::{
-    env,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 
 use dtchat_backend::{
-    db::simple_vec::SimpleVecDB,
-    dtchat::{ChatModel, Peer},
+    dtchat::ChatModel,
     event::{
         AppEventObserver, ChatAppErrorEvent, ChatAppEvent, ChatAppInfoEvent, NetworkErrorEvent,
         NetworkEvent,
@@ -14,7 +10,6 @@ use dtchat_backend::{
     time::DTChatTime,
 };
 use socket_engine::{
-    endpoint::Endpoint,
     engine::Engine,
     event::{ConnectionEvent, DataEvent},
 };
@@ -309,7 +304,7 @@ impl AppEventObserver for TerminalScreen {
                 };
                 self.add_network_event(EventLevel::Error, error_text);
             }
-            ChatAppEvent::Info(info_event) => match info_event {
+            ChatAppEvent::Message(info_event) => match info_event {
                 ChatAppInfoEvent::Sending(chat_message) => {
                     let msg_id = safe_message_id_display(&chat_message.uuid);
                     self.add_app_event(EventLevel::Info, format!("Sending message {}", msg_id));
@@ -382,6 +377,7 @@ impl AppEventObserver for TerminalScreen {
 
                 self.add_app_event(EventLevel::Error, error_text);
             }
+            ChatAppEvent::Info(info) => self.add_app_event(EventLevel::Error, info),
         }
 
         self.render();
@@ -389,64 +385,19 @@ impl AppEventObserver for TerminalScreen {
 }
 
 fn main() {
-    // --- 1) parse CLI argument
-    let args: Vec<String> = env::args().collect();
-    let mut view_height: usize = 10;
-    if args.len() < 3 {
-        eprintln!(
-            "Usage: {} <local-endpoint> <distant-endpoint> [<view-height>, default: 10]",
-            args[0]
-        );
-        std::process::exit(1);
-    }
+    let view_height: usize = 10;
 
-    let local_ep = match Endpoint::from_str(&args[1]) {
-        Ok(ep) => ep,
-        Err(e) => {
-            eprintln!("Invalid local endpoint `{}`: {}", args[1], e);
-            std::process::exit(1);
-        }
-    };
-    let distant_ep = match Endpoint::from_str(&args[2]) {
-        Ok(ep) => ep,
-        Err(e) => {
-            eprintln!("Invalid distant endpoint `{}`: {}", args[2], e);
-            std::process::exit(1);
-        }
-    };
-
-    if args.len() >= 4 {
-        match &args[3].parse() {
-            Ok(n) => view_height = *n,
-            _ => {
-                eprintln!("Error: '{}' is not a valid positive integer.", &args[3]);
-                std::process::exit(1);
-            }
-        };
-    }
-
-    let local_peer = Peer {
-        uuid: args[1].clone(),
-        name: args[1].clone(),
-        endpoints: vec![local_ep],
-    };
-
-    let distant_peer = Peer {
-        uuid: args[2].clone(),
-        name: args[2].clone(),
-        endpoints: vec![distant_ep.clone()],
-    };
-    let chat_model = Arc::new(Mutex::new(ChatModel::new(
-        local_peer.clone(),
-        vec![distant_peer.clone()],
-        Box::new(SimpleVecDB::default()),
-    )));
+    let chat_model = Arc::new(Mutex::new(ChatModel::new()));
     let mut network_engine = Engine::new();
+    let local_peer = chat_model.lock().unwrap().get_localpeer();
+    let distant_peer = chat_model.lock().unwrap().get_other_peers()[0].clone();
+
     network_engine.add_observer(chat_model.clone());
     let screen = Arc::new(Mutex::new(TerminalScreen::new(
-        args[1].clone(),
+        local_peer.uuid,
         view_height,
     )));
+
     chat_model.lock().unwrap().add_observer(screen.clone());
     chat_model.lock().unwrap().start(network_engine);
 
@@ -464,7 +415,7 @@ fn main() {
                     &input.to_string(),
                     &"room".to_string(),
                     distant_peer.uuid.clone(),
-                    &distant_ep,
+                    &distant_peer.endpoints[0],
                     false,
                 );
             }

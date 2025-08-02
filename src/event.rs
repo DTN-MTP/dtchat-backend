@@ -3,7 +3,8 @@ pub use socket_engine::event::{ConnectionEvent, DataEvent, ErrorEvent};
 
 #[derive(Clone, Debug)]
 pub enum ChatAppEvent {
-    Info(ChatAppInfoEvent),
+    Info(String),
+    Message(ChatAppInfoEvent),
     Error(ChatAppErrorEvent),
     SocketEngineInfo(NetworkEvent),
     SocketEngineError(NetworkErrorEvent),

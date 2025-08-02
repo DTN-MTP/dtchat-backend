@@ -1,4 +1,4 @@
-use std::{collections::HashMap, env, io};
+use std::{collections::HashMap, io};
 
 use a_sabr::{
     bundle::Bundle,
@@ -27,10 +27,7 @@ fn extract_ion_id_from_bp_address(bp_address: &str) -> String {
 }
 
 impl PredictionConfig {
-    pub fn try_init() -> io::Result<Self> {
-        let cp_path: String = env::var("CP_PATH")
-            .map_err(|_| io::Error::new(io::ErrorKind::NotFound, "CP_PATH not set"))?;
-
+    pub fn try_init(cp_path: String) -> io::Result<Self> {
         let (nodes, contacts) = IONContactPlan::parse::<NoManagement, EVLManager>(&cp_path)?;
 
         let node_index_map: HashMap<String, NodeID> = nodes
