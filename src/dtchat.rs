@@ -14,7 +14,7 @@ use crate::{
         AppEventObserver, ChatAppErrorEvent, ChatAppEvent, ChatAppInfoEvent, NetworkErrorEvent,
         NetworkEvent,
     },
-    message::{ChatMessage, SortStrategy},
+    message::{ChatMessage, RoomMessage, SortStrategy},
     prediction::PredictionConfig,
     proto::{proto_message::MsgType, ProtoMessage},
     time::DTChatTime,
@@ -246,16 +246,73 @@ impl ChatModel {
         }
     }
 
+    pub fn get_other_peers_for_room(&self, room_uuid: &String) -> Option<Vec<(String, Endpoint)>> {
+        let rooms = self.db.get_rooms();
+        for room in &rooms {
+            if room.uuid != *room_uuid {
+                continue;
+            }
+            let mut is_allowed = false;
+            let mut participations: Vec<(String, Endpoint)> = Vec::new();
+            for reg in &room.participants {
+                if reg.0 == self.db.get_localpeer().uuid {
+                    is_allowed = true;
+                } else {
+                    participations.push(reg.clone());
+                }
+            }
+            if is_allowed {
+                return Some(participations);
+            }
+        }
+        None
+    }
+
+    pub fn send_to_room(
+        &mut self,
+        text: &String,
+        room_uuid: &String,
+        try_prediction: bool,
+    ) -> Option<RoomMessage> {
+        let participants_opt = self.get_other_peers_for_room(room_uuid);
+        if let Some(participants) = participants_opt {
+            let mut room_msg = RoomMessage {
+                uuid: generate_uuid(),
+                room_uuid: room_uuid.clone(),
+                messages: Vec::new(),
+            };
+            if participants.len() == 0 {
+                return None;
+            }
+
+            for (peer_uuid, endpoint) in participants {
+                room_msg.messages.push(self.send_to_peer(
+                    text,
+                    &room_uuid,
+                    peer_uuid,
+                    &endpoint,
+                    try_prediction,
+                ));
+            }
+            return Some(room_msg);
+        }
+        None
+    }
+
     pub fn send_to_peer(
         &mut self,
         text: &String,
-        room: &String,
+        room_uuid: &String,
         peer_uuid: String,
         endpoint: &Endpoint,
         try_prediction: bool,
-    ) {
-        let mut chatmsg =
-            ChatMessage::new_to_send(&self.db.get_localpeer().uuid, room, text, endpoint.clone());
+    ) -> String {
+        let mut chatmsg = ChatMessage::new_to_send(
+            &self.db.get_localpeer().uuid,
+            room_uuid,
+            text,
+            endpoint.clone(),
+        );
         let sending_uuid = chatmsg.uuid.clone();
 
         let local_endpoint = self.find_local_endpoint_for_protocol(endpoint.proto.clone());
@@ -301,6 +358,7 @@ impl ChatModel {
             }
         }
         self.add_message(chatmsg.clone());
+        return chatmsg.uuid;
     }
 
     pub fn send_ack_to_peer(&mut self, for_msg: &ChatMessage, target_endpoint: Endpoint) {

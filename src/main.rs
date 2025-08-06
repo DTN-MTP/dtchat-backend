@@ -418,6 +418,12 @@ fn main() {
                     &distant_peer.endpoints[0],
                     false,
                 );
+                // // Room message test
+                // chat_model.lock().unwrap().send_to_room(
+                //     &input.to_string(),
+                //     &"1".to_string(),
+                //     false,
+                // );
             }
         }
     }

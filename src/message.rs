@@ -7,6 +7,12 @@ use crate::{
     time::DTChatTime,
 };
 
+pub struct RoomMessage {
+    pub uuid: String,
+    pub room_uuid: String,
+    pub messages: Vec<String>, // list of uuid replica
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MessageStatus {
     Sending,        // Message en cours d'envoi
