@@ -1,7 +1,7 @@
 use crate::{
     config::AppConfig,
     db::{simple_vec::SimpleVecDB, ChatDataBase},
-    dtchat::Peer,
+    dtchat::{Peer, Room},
 };
 use serde::{
     de::{self, Visitor},
@@ -66,9 +66,23 @@ impl From<RawPeer> for Peer {
     }
 }
 
+#[derive(Clone, Debug, Deserialize)]
+pub struct Registration {
+    peer_uuid: String,
+    endpoint: EndpointWrapper,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct RawRoom {
+    pub uuid: String,
+    pub name: String,
+    pub participants: Vec<Registration>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct YamlVec {
     pub peer_list: Vec<RawPeer>,
+    pub room_list: Vec<RawRoom>,
 }
 
 impl YamlVec {
@@ -86,8 +100,9 @@ impl YamlVec {
             panic!("Failed to load configuration from '{config_file}': {e}");
         });
 
-        let mut peers: Vec<Peer> = Vec::new();
         let mut local_peer_opt = None;
+
+        let mut peers: Vec<Peer> = Vec::new();
         for p in conf.peer_list {
             if p.uuid == local_peer_uuid {
                 local_peer_opt = Some(p.clone())
@@ -95,9 +110,22 @@ impl YamlVec {
                 peers.push(Peer::from(p));
             }
         }
+
         let Some(local_peer) = local_peer_opt else {
             panic!("Failed identify localpeer with uuid '{local_peer_uuid}'")
         };
+        let mut rooms: Vec<Room> = Vec::new();
+        for raw_room in conf.room_list {
+            let mut registrations: Vec<(String, Endpoint)> = Vec::new();
+            for reg in raw_room.participants {
+                registrations.push((reg.peer_uuid, Endpoint::from(reg.endpoint)));
+            }
+            rooms.push(Room {
+                uuid: raw_room.uuid,
+                name: raw_room.name,
+                participants: registrations,
+            })
+        }
 
         Box::new(SimpleVecDB::new(Vec::new(), Peer::from(local_peer), peers))
     }

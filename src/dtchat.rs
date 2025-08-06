@@ -32,6 +32,12 @@ pub struct Peer {
     pub color: String,
 }
 
+pub struct Room {
+    pub uuid: String,
+    pub name: String,
+    pub participants: Vec<(String, Endpoint)>,
+}
+
 #[derive(PartialEq, Eq)]
 enum MessageType {
     Ack,
