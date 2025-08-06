@@ -24,12 +24,12 @@ peer_list:
     color: ORANGE
 
 room_list:
-  - uuid: 1
+  - uuid: "1"
     name: Default
     participants:
-      - peer_uuid: "Instance 1"
+      - peer_uuid: "1"
         endpoint: "tcp 127.0.0.1:6500"
-      - peer_uuid: "Instance 2"
+      - peer_uuid: "2"
         endpoint: "udp 127.0.0.1:7550"
-      - peer_uuid: "Instance 3"
+      - peer_uuid: "3"
         endpoint: "tcp 127.0.0.1:8000"

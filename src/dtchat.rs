@@ -31,7 +31,7 @@ pub struct Peer {
     pub endpoints: Vec<Endpoint>,
     pub color: String,
 }
-
+#[derive(Clone, Debug)]
 pub struct Room {
     pub uuid: String,
     pub name: String,

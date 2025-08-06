@@ -7,7 +7,7 @@ use crate::{
     time::DTChatTime,
 };
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MessageStatus {
     Sending,        // Message en cours d'envoi
     Sent,           // Message envoyé avec succès

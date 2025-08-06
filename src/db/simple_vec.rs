@@ -1,6 +1,6 @@
 use crate::{
     db::{ChatDataBase, MarkIntent},
-    dtchat::Peer,
+    dtchat::{Peer, Room},
     message::{ChatMessage, MessageStatus},
 };
 
@@ -8,19 +8,31 @@ pub struct SimpleVecDB {
     messages: Vec<ChatMessage>,
     localpeer: Peer,
     peers: Vec<Peer>,
+    rooms: Vec<Room>,
 }
 
 impl SimpleVecDB {
-    pub fn new(messages: Vec<ChatMessage>, localpeer: Peer, peers: Vec<Peer>) -> Self {
+    pub fn new(
+        messages: Vec<ChatMessage>,
+        localpeer: Peer,
+        peers: Vec<Peer>,
+        rooms: Vec<Room>,
+    ) -> Self {
         Self {
             messages,
             localpeer,
             peers,
+            rooms,
         }
     }
 }
 
 impl ChatDataBase for SimpleVecDB {
+    // Peers
+    fn get_rooms(&self) -> Vec<Room> {
+        return self.rooms.clone();
+    }
+
     // Peers
     fn get_other_peers(&self) -> Vec<crate::dtchat::Peer> {
         return self.peers.clone();
@@ -52,6 +64,7 @@ impl ChatDataBase for SimpleVecDB {
                     MarkIntent::Acked(date_time) => {
                         message.receive_time = Some(date_time);
                         message.status = MessageStatus::ReceivedByPeer;
+
                         return Some(message.clone());
                     }
                     MarkIntent::Sent(date_time) => {

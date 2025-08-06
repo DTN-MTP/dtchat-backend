@@ -127,6 +127,11 @@ impl YamlVec {
             })
         }
 
-        Box::new(SimpleVecDB::new(Vec::new(), Peer::from(local_peer), peers))
+        Box::new(SimpleVecDB::new(
+            Vec::new(),
+            Peer::from(local_peer),
+            peers,
+            rooms,
+        ))
     }
 }

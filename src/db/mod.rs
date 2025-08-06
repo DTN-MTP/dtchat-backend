@@ -1,4 +1,8 @@
-use crate::{dtchat::Peer, message::ChatMessage, time::DTChatTime};
+use crate::{
+    dtchat::{Peer, Room},
+    message::ChatMessage,
+    time::DTChatTime,
+};
 pub mod simple_vec;
 
 pub enum MarkIntent {
@@ -8,6 +12,7 @@ pub enum MarkIntent {
 }
 
 pub trait ChatDataBase: Send + Sync {
+    fn get_rooms(&self) -> Vec<Room>;
     // Peers
     fn get_other_peers(&self) -> Vec<Peer>;
     fn get_localpeer(&self) -> Peer;
