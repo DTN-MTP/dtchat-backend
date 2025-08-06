@@ -9,6 +9,8 @@ a_sabr = { git ="https://github.com/DTN-MTP/A-SABR.git", branch = "main", featur
 uuid = { version = "1.6.1", features = ["v4"] }
 chrono = "0.4.41"
 prost = "0.14.1"
+serde_yaml = "0.9.33"
+serde = { version = "1.0.217", features = ["derive"] }
 
 [build-dependencies]
 prost-build = "0.14.1"
