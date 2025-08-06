@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 use socket_engine::{
     endpoint::{Endpoint, EndpointProto},
@@ -183,8 +186,9 @@ impl ChatModel {
 
     pub fn start(&mut self, engine: Engine) {
         self.network_engine = Some(engine);
+        let endpoints = &self.db.get_localpeer().endpoints;
         if let Some(eng) = &mut self.network_engine {
-            for endpoint in &mut self.db.get_localpeer().endpoints {
+            for endpoint in endpoints {
                 eng.start_listener_async(endpoint.clone());
             }
         }
@@ -248,8 +252,8 @@ impl ChatModel {
 
     pub fn get_other_peers_for_room(&self, room_uuid: &String) -> Option<Vec<(String, Endpoint)>> {
         let rooms = self.db.get_rooms();
-        for room in &rooms {
-            if room.uuid != *room_uuid {
+        for (uuid, room) in rooms {
+            if *uuid != *room_uuid {
                 continue;
             }
             let mut is_allowed = false;
@@ -433,19 +437,22 @@ impl ChatModel {
         }
     }
 
-    pub fn get_other_peers(&self) -> Vec<Peer> {
-        self.db.get_other_peers()
+    pub fn get_other_peers(&self) -> HashMap<String, Peer> {
+        self.db.get_other_peers().clone()
     }
     pub fn get_localpeer(&self) -> Peer {
-        self.db.get_localpeer()
+        self.db.get_localpeer().clone()
+    }
+    pub fn get_rooms(&self) -> HashMap<String, Room> {
+        self.db.get_rooms().clone()
     }
 
     pub fn get_last_messages(&mut self, count: usize) -> Vec<ChatMessage> {
-        self.db.get_last_messages(count)
+        self.db.get_last_messages(count).to_vec()
     }
 
     pub fn get_all_messages(&self) -> Vec<ChatMessage> {
-        self.db.get_all_messages()
+        self.db.get_all_messages().clone()
     }
 
     pub fn mark_as_sent(&mut self, target_uuid: &String) {
@@ -506,16 +513,16 @@ impl ChatModel {
         peer_id: String,
         target_proto: EndpointProto,
     ) -> Option<Endpoint> {
-        for peer in &self.db.get_other_peers() {
-            if peer.uuid != peer_id {
-                continue;
-            }
+        let binding = self.db.get_other_peers();
+        let peer_opt = &binding.get(&peer_id);
+        if let Some(peer) = peer_opt {
             return peer
                 .endpoints
                 .iter()
                 .find(|ep| ep.proto == target_proto)
                 .cloned();
         }
+
         None
     }
 

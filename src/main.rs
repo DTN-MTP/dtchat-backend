@@ -390,7 +390,8 @@ fn main() {
     let chat_model = Arc::new(Mutex::new(ChatModel::new()));
     let mut network_engine = Engine::new();
     let local_peer = chat_model.lock().unwrap().get_localpeer();
-    let distant_peer = chat_model.lock().unwrap().get_other_peers()[0].clone();
+    let binding = chat_model.lock().unwrap().get_other_peers();
+    let distant_peer = binding.iter().next().unwrap().1;
 
     network_engine.add_observer(chat_model.clone());
     let screen = Arc::new(Mutex::new(TerminalScreen::new(
