@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-socket-engine = {path = "../socket-engine"} #{ git = "https://github.com/DTN-MTP/socket-engine" , branch = "main" }
+socket-engine = { git = "https://github.com/DTN-MTP/socket-engine" , branch = "main" }
 a_sabr = { git ="https://github.com/DTN-MTP/A-SABR.git", branch = "main", features = ["contact_work_area", "contact_suppression"] }
 uuid = { version = "1.6.1", features = ["v4"] }
 chrono = "0.4.41"

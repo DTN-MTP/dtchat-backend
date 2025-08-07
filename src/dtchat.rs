@@ -27,7 +27,7 @@ pub fn generate_uuid() -> String {
     Uuid::new_v4().to_string()
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Peer {
     pub uuid: String,
     pub name: String,
