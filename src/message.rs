@@ -1,5 +1,5 @@
 use core::cmp::Ordering;
-use socket_engine::endpoint::{Endpoint, EndpointProto};
+use socket_engine::endpoint::Endpoint;
 
 use crate::{
     dtchat::generate_uuid,
@@ -159,15 +159,4 @@ pub fn relative_cmp(a: &ChatMessage, b: &ChatMessage, ctx_peer_uuid: &str) -> Or
         tx_b
     };
     anchor_a.cmp(&anchor_b)
-}
-
-pub fn filter_by_network_endpoint(
-    messages: &[ChatMessage],
-    protocol_filter: EndpointProto,
-) -> Vec<ChatMessage> {
-    messages
-        .iter()
-        .filter(|msg| msg.source_endpoint.proto == protocol_filter)
-        .cloned()
-        .collect()
 }
