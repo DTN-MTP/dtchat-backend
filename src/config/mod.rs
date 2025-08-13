@@ -3,7 +3,10 @@ use crate::{
     prediction::PredictionConfig,
 };
 use serde::Deserialize;
-use std::fs;
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+};
 
 mod yaml_vec;
 
@@ -26,7 +29,7 @@ impl AppConfig {
     const DEFAULT_CONFIG_PATH_VALUE: &str = "default.yaml";
     const DEFAULT_CONFIG_PATH_ENV_VAR: &str = "CONFIG_PATH";
 
-    pub fn new() -> (Box<dyn ChatDataBase>, ASabrInitState, String) {
+    pub fn new() -> (Box<dyn ChatDataBase>, ASabrInitState, PathBuf) {
         let config_file = match std::env::var(Self::DEFAULT_CONFIG_PATH_ENV_VAR) {
             Ok(path) => path,
             Err(_) => {
@@ -47,9 +50,27 @@ impl AppConfig {
             DbType::YamlVec => YamlVec::new(&config_file),
         };
 
-        let file_reception_path = match conf.file_reception_dir {
-            Some(path) => path,
-            None => Self::DEFAULT_FILE_RECEPTION_DIR.to_string(),
+        let file_reception_path: PathBuf = {
+            // Use config path or default
+            let base = conf
+                .file_reception_dir
+                .as_deref()
+                .unwrap_or(Self::DEFAULT_FILE_RECEPTION_DIR);
+
+            // Make absolute
+            let mut path = Path::new(base).to_path_buf();
+            if !path.is_absolute() {
+                path = env::current_dir()
+                    .unwrap_or_else(|_| PathBuf::from(base))
+                    .join(path);
+            }
+
+            // Ensure directory exists, fallback to default on failure
+            if fs::create_dir_all(&path).is_err() {
+                PathBuf::from(Self::DEFAULT_FILE_RECEPTION_DIR)
+            } else {
+                path
+            }
         };
 
         let cp_path_unwrapped = match conf.cp_path {
