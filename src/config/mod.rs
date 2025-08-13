@@ -15,16 +15,18 @@ pub enum DbType {
 #[derive(Debug, Deserialize)]
 pub struct Config {
     pub db_type: DbType,
+    pub file_reception_dir: Option<String>,
     pub cp_path: Option<String>,
 }
 
 pub struct AppConfig {}
 
 impl AppConfig {
+    const DEFAULT_FILE_RECEPTION_DIR: &str = "./";
     const DEFAULT_CONFIG_PATH_VALUE: &str = "default.yaml";
     const DEFAULT_CONFIG_PATH_ENV_VAR: &str = "CONFIG_PATH";
 
-    pub fn new() -> (Box<dyn ChatDataBase>, ASabrInitState) {
+    pub fn new() -> (Box<dyn ChatDataBase>, ASabrInitState, String) {
         let config_file = match std::env::var(Self::DEFAULT_CONFIG_PATH_ENV_VAR) {
             Ok(path) => path,
             Err(_) => {
@@ -44,10 +46,16 @@ impl AppConfig {
         let db = match conf.db_type {
             DbType::YamlVec => YamlVec::new(&config_file),
         };
+
+        let file_reception_path = match conf.file_reception_dir {
+            Some(path) => path,
+            None => Self::DEFAULT_FILE_RECEPTION_DIR.to_string(),
+        };
+
         let cp_path_unwrapped = match conf.cp_path {
             Some(cp) => cp,
             None => {
-                return (db, ASabrInitState::Disabled);
+                return (db, ASabrInitState::Disabled, file_reception_path);
             }
         };
 
@@ -56,7 +64,7 @@ impl AppConfig {
             Ok(pred_conf) => ASabrInitState::Enabled(pred_conf),
             Err(err) => ASabrInitState::Error(err.to_string()),
         };
-        (db, pred_opt)
+        (db, pred_opt, file_reception_path)
     }
 
     pub fn from_file<T, P>(path: P) -> Result<T, Box<dyn std::error::Error>>

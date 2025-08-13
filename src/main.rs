@@ -6,7 +6,7 @@ use dtchat_backend::{
         AppEventObserver, ChatAppErrorEvent, ChatAppEvent, ChatAppInfoEvent, NetworkErrorEvent,
         NetworkEvent,
     },
-    message::{ChatMessage, MessageStatus},
+    message::{ChatMessage, Content, MessageStatus},
     time::DTChatTime,
 };
 use socket_engine::{
@@ -149,12 +149,15 @@ impl TerminalScreen {
                     "\x1b[34m"
                 };
 
-                let display_text = if msg.text.len() > 40 {
-                    format!("{}...", &msg.text[..37])
-                } else {
-                    msg.text.clone()
+                let display_text = match &msg.content {
+                    Content::Text(str) | Content::File(str) => {
+                        if str.len() > 40 {
+                            format!("{}...", &str[..37])
+                        } else {
+                            str.clone()
+                        }
+                    }
                 };
-
                 println!(
                     "  {}[{}] {} {}{}\x1b[0m",
                     status_color, status_indicator, time_display, msg_color, display_text
@@ -413,7 +416,7 @@ fn main() {
             }
             if !input.is_empty() {
                 chat_model.lock().unwrap().send_to_peer(
-                    &input.to_string(),
+                    &Content::Text(input.to_string()),
                     &"room".to_string(),
                     distant_peer.uuid.clone(),
                     &distant_peer.endpoints[0],
@@ -425,6 +428,13 @@ fn main() {
                 //     &"1".to_string(),
                 //     false,
                 // );
+                chat_model.lock().unwrap().send_to_peer(
+                    &Content::File(input.to_string()), // provide the path
+                    &"room".to_string(),
+                    distant_peer.uuid.clone(),
+                    &distant_peer.endpoints[0],
+                    false,
+                );
             }
         }
     }

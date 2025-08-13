@@ -1,11 +1,7 @@
 use core::cmp::Ordering;
 use socket_engine::endpoint::Endpoint;
 
-use crate::{
-    dtchat::generate_uuid,
-    proto::{ProtoMessage, TextMessage},
-    time::DTChatTime,
-};
+use crate::{dtchat::generate_uuid, proto::ProtoMessage, time::DTChatTime};
 
 pub struct RoomMessage {
     pub uuid: String,
@@ -23,11 +19,17 @@ pub enum MessageStatus {
 }
 
 #[derive(Clone, Debug)]
+pub enum Content {
+    Text(String), // message
+    File(String), // path
+}
+
+#[derive(Clone, Debug)]
 pub struct ChatMessage {
     pub uuid: String,
     pub sender_uuid: String,
     pub room_uuid: String,
-    pub text: String,
+    pub content: Content,
     pub send_time: DTChatTime,
     pub send_completed: Option<DTChatTime>,
     pub predicted_arrival_time: Option<DTChatTime>,
@@ -47,14 +49,14 @@ impl ChatMessage {
     pub fn new_to_send(
         sender_uuid: &String,
         room_uuid: &String,
-        text: &String,
+        content: Content,
         source_endpoint: Endpoint,
     ) -> Self {
         ChatMessage {
             uuid: generate_uuid(),
             sender_uuid: sender_uuid.clone(),
             room_uuid: room_uuid.clone(),
-            text: text.clone(),
+            content: content.clone(),
             send_time: DTChatTime::now(),
             send_completed: None,
             predicted_arrival_time: None,
@@ -64,14 +66,14 @@ impl ChatMessage {
         }
     }
 
-    pub fn new_received(proto_msg: &ProtoMessage, text_part: &TextMessage) -> Option<Self> {
+    pub fn new_received(proto_msg: &ProtoMessage, content: Content) -> Option<Self> {
         if let Some(datetime) = DTChatTime::from_timestamp_millis(proto_msg.timestamp) {
             if let Some(source_endpoint) = Endpoint::from_str(&proto_msg.source_endpoint).ok() {
                 return Some(ChatMessage {
                     uuid: proto_msg.uuid.clone(),
                     sender_uuid: proto_msg.sender_uuid.clone(),
                     room_uuid: proto_msg.room_uuid.clone(),
-                    text: text_part.text.clone(),
+                    content,
                     send_time: datetime.clone(),
                     send_completed: Some(datetime),
                     predicted_arrival_time: None,
