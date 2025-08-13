@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     fs,
-    path::Path,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
 
@@ -63,7 +63,7 @@ pub struct ChatModel {
     pending_send_list: Vec<(MessageType, String, Option<String>)>, // msg_type, uuid, original_msg_id pour ACK
     db: Box<dyn ChatDataBase>,
     a_sabr: ASabrInitState,
-    reception_folder: String,
+    reception_folder: PathBuf,
 }
 
 impl EngineObserver for ChatModel {
@@ -206,6 +206,10 @@ impl ChatModel {
             }
         };
         self.notify_observers(ChatAppEvent::Info(message));
+        self.notify_observers(ChatAppEvent::Info(format!(
+            "Received files will be stored in folder {}",
+            self.reception_folder.to_string_lossy().into_owned()
+        )));
     }
     pub fn is_pbat_enabled(&self) -> bool {
         if let ASabrInitState::Enabled(_) = self.a_sabr {
@@ -241,7 +245,7 @@ impl ChatModel {
                 let chat_msg =
                     ChatMessage::new_received(&proto_msg, Content::File(file_part.name.clone()));
                 let full_path = Path::new(&self.reception_folder).join(file_part.name.clone());
-                match fs::write(&full_path, file_part.data.clone()) {
+                match fs::write(full_path, file_part.data.clone()) {
                     Ok(_) => {
                         self.notify_observers(ChatAppEvent::Info(format!(
                             "File stored: {}",
