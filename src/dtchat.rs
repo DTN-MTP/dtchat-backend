@@ -1,5 +1,7 @@
 use std::{
     collections::HashMap,
+    fs,
+    path::Path,
     sync::{Arc, Mutex},
 };
 
@@ -17,7 +19,7 @@ use crate::{
         AppEventObserver, ChatAppErrorEvent, ChatAppEvent, ChatAppInfoEvent, NetworkErrorEvent,
         NetworkEvent,
     },
-    message::{ChatMessage, RoomMessage, SortStrategy},
+    message::{ChatMessage, Content, RoomMessage, SortStrategy},
     prediction::PredictionConfig,
     proto::{proto_message::MsgType, ProtoMessage},
     time::DTChatTime,
@@ -61,6 +63,7 @@ pub struct ChatModel {
     pending_send_list: Vec<(MessageType, String, Option<String>)>, // msg_type, uuid, original_msg_id pour ACK
     db: Box<dyn ChatDataBase>,
     a_sabr: ASabrInitState,
+    reception_folder: String,
 }
 
 impl EngineObserver for ChatModel {
@@ -172,7 +175,7 @@ impl EngineObserver for ChatModel {
 
 impl ChatModel {
     pub fn new() -> Self {
-        let (db, pred) = AppConfig::new();
+        let (db, pred, reception_folder) = AppConfig::new();
         Self {
             // TODO: have an SQL(ite) db.rs
             sort_strategy: SortStrategy::Standard,
@@ -181,6 +184,7 @@ impl ChatModel {
             pending_send_list: Vec::new(),
             db,
             a_sabr: pred,
+            reception_folder,
         }
     }
 
@@ -210,30 +214,57 @@ impl ChatModel {
         false
     }
 
+    fn treat_file_and_text(&mut self, msg_opt: Option<ChatMessage>, proto_msg: &ProtoMessage) {
+        if let Some(msg) = msg_opt {
+            self.add_message(msg.clone());
+
+            match Endpoint::from_str(proto_msg.source_endpoint.as_str()) {
+                Ok(endpoint) => self.send_ack_to_peer(&msg, endpoint),
+                Err(_err) => {
+                    self.notify_observers(ChatAppEvent::Error(ChatAppErrorEvent::ProtocolDecode(
+                        "Received proto message source endpoint cannot be parsed".to_string(),
+                    )));
+                }
+            }
+        }
+    }
+
     pub fn treat_proto_message(&mut self, proto_msg: ProtoMessage) {
         match &proto_msg.msg_type {
             Some(MsgType::Text(text_part)) => {
-                let chat_msg = ChatMessage::new_received(&proto_msg, &text_part);
-                if let Some(msg) = chat_msg {
-                    self.add_message(msg.clone());
+                let chat_msg =
+                    ChatMessage::new_received(&proto_msg, Content::Text(text_part.text.clone()));
+                self.treat_file_and_text(chat_msg, &proto_msg)
+            }
 
-                    match Endpoint::from_str(proto_msg.source_endpoint.as_str()) {
-                        Ok(endpoint) => self.send_ack_to_peer(&msg, endpoint),
-                        Err(_err) => {
-                            self.notify_observers(ChatAppEvent::Error(
-                                ChatAppErrorEvent::ProtocolDecode(
-                                    "Received proto message source endpoint cannot be parsed"
-                                        .to_string(),
-                                ),
-                            ));
-                            // TODO: fallback to another endpoint for the distant peer?
-                        }
+            Some(MsgType::File(file_part)) => {
+                let chat_msg =
+                    ChatMessage::new_received(&proto_msg, Content::File(file_part.name.clone()));
+                let full_path = Path::new(&self.reception_folder).join(file_part.name.clone());
+                match fs::write(&full_path, file_part.data.clone()) {
+                    Ok(_) => {
+                        self.notify_observers(ChatAppEvent::Info(format!(
+                            "File stored: {}",
+                            file_part.name
+                        )));
+                    }
+                    Err(err) => {
+                        self.notify_observers(ChatAppEvent::Error(
+                            ChatAppErrorEvent::InternalError(format!(
+                                "Unable to save received file: {}",
+                                err
+                            )),
+                        ));
                     }
                 }
+
+                self.treat_file_and_text(chat_msg, &proto_msg)
             }
+
             Some(MsgType::Ack(ack)) => {
                 self.mark_as_acked(&ack.message_uuid, proto_msg.timestamp);
             }
+
             None => self.notify_observers(ChatAppEvent::Error(ChatAppErrorEvent::ProtocolDecode(
                 "Received proto message with unknown type".to_string(),
             ))),
@@ -274,7 +305,7 @@ impl ChatModel {
 
     pub fn send_to_room(
         &mut self,
-        text: &String,
+        content: &Content,
         room_uuid: &String,
         try_prediction: bool,
     ) -> Option<RoomMessage> {
@@ -291,7 +322,7 @@ impl ChatModel {
 
             for (peer_uuid, endpoint) in participants {
                 room_msg.messages.push(self.send_to_peer(
-                    text,
+                    content,
                     &room_uuid,
                     peer_uuid,
                     &endpoint,
@@ -305,7 +336,7 @@ impl ChatModel {
 
     pub fn send_to_peer(
         &mut self,
-        text: &String,
+        content: &Content,
         room_uuid: &String,
         peer_uuid: String,
         endpoint: &Endpoint,
@@ -314,7 +345,7 @@ impl ChatModel {
         let mut chatmsg = ChatMessage::new_to_send(
             &self.db.get_localpeer().uuid,
             room_uuid,
-            text,
+            content.clone(),
             endpoint.clone(),
         );
         let sending_uuid = chatmsg.uuid.clone();
@@ -327,18 +358,24 @@ impl ChatModel {
         let mut size_serialized = None;
 
         if let Some(engine) = &mut self.network_engine {
-            let bytes_res =
-                ProtoMessage::new_text(&chatmsg, local_endpoint.clone()).encode_to_vec();
-            match bytes_res {
-                Ok(bytes) => {
-                    size_serialized = Some(bytes.len());
-                    engine.send_async(local_endpoint, endpoint.clone(), bytes, sending_uuid);
-                }
-                Err(err) => {
-                    self.notify_observers(ChatAppEvent::Error(ChatAppErrorEvent::ProtocolEncode(
-                        format!("Failed to encode message: {}", err),
-                    )));
-                }
+            match ProtoMessage::new_text(&chatmsg, local_endpoint.clone()) {
+                Ok(create_proto) => match create_proto.encode_to_vec() {
+                    Ok(bytes) => {
+                        size_serialized = Some(bytes.len());
+                        engine.send_async(local_endpoint, endpoint.clone(), bytes, sending_uuid);
+                    }
+                    Err(err) => {
+                        self.notify_observers(ChatAppEvent::Error(
+                            ChatAppErrorEvent::ProtocolEncode(format!(
+                                "Failed to encode message: {}",
+                                err
+                            )),
+                        ));
+                    }
+                },
+                Err(err) => self.notify_observers(ChatAppEvent::Error(
+                    ChatAppErrorEvent::InternalError(format!("Failed to encode message: {}", err)),
+                )),
             }
         }
         if try_prediction {

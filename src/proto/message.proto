@@ -12,7 +12,13 @@ message ProtoMessage {
   oneof msg_type {
     TextMessage text = 6;
     AckMessage ack = 7;
+    FileMessage file = 8;
   }
+}
+
+message FileMessage {
+  string name = 1;
+  bytes data = 2;
 }
 
 message TextMessage {
