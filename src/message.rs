@@ -66,6 +66,13 @@ impl ChatMessage {
         }
     }
 
+    #[inline]
+    pub fn content_as_string(&self) -> String {
+        match &self.content {
+            Content::Text(str) | Content::File(str) => str.clone(),
+        }
+    }
+
     pub fn new_received(proto_msg: &ProtoMessage, content: Content) -> Option<Self> {
         if let Some(datetime) = DTChatTime::from_timestamp_millis(proto_msg.timestamp) {
             if let Some(source_endpoint) = Endpoint::from_str(&proto_msg.source_endpoint).ok() {
