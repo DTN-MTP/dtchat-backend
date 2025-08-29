@@ -9,13 +9,13 @@ pub struct RoomMessage {
     pub messages: Vec<String>, // list of uuid replica
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum MessageStatus {
-    Sending,        // Message en cours d'envoi
-    Sent,           // Message envoyé avec succès
-    ReceivedByPeer, // Message acquitté
-    Failed,         // Message en erreur
-    Received,       // Message reçu
+    Sending,
+    Sent,
+    ReceivedByPeer,
+    Failed,
+    Received,
 }
 
 #[derive(Clone, Debug)]
