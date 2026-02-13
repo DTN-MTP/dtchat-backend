@@ -27,7 +27,7 @@ fn extract_ion_id_from_bp_address(bp_address: &str) -> String {
 }
 
 impl PredictionConfig {
-    pub fn try_init(cp_path: String) -> io::Result<Self> {
+    pub fn try_init(cp_path: String, algo : &str) -> io::Result<Self> {
         let (nodes, contacts) = IONContactPlan::parse::<NoManagement, EVLManager>(&cp_path)?;
 
         let node_index_map: HashMap<String, NodeID> = nodes
@@ -36,15 +36,15 @@ impl PredictionConfig {
             .map(|(index, node)| (node.get_node_name().to_string(), index as NodeID))
             .collect();
 
-        let router = build_generic_router::<NoManagement, EVLManager>(
-            "CgrFirstEndingContactParenting",
+        let router_box = build_generic_router::<NoManagement, EVLManager>(
+            algo,
             nodes,
             contacts,
             None,
-        );
+        ).expect("Failed to build router");
 
         let router: Box<dyn Router<NoManagement, EVLManager> + Send + Sync> =
-            unsafe { std::mem::transmute(router) };
+            unsafe { std::mem::transmute(router_box) };
         // in seconds
         let cp_start_time = DTChatTime::now().timestamp_millis() as f64 / 1000.0;
 
@@ -99,7 +99,7 @@ impl PredictionConfig {
             .router
             .route(bundle.source, &bundle, cp_send_time, &excluded_nodes)
         {
-            Some(routing_output) => {
+            Ok(Some(routing_output)) => {
                 // println!("Route found from ION {} to ION {}", source_ion, dest_ion);
                 // Only display the last element
                 if let Some((_contact_ptr, (_contact, route_stages))) =
@@ -129,11 +129,17 @@ impl PredictionConfig {
                     "Route found but no route stages available",
                 ))
             }
-            None => {
+            Ok(None) => {
                 // eprintln!("No route found from ION {} to ION {}", source_ion, dest_ion);
                 Err(io::Error::new(
                     io::ErrorKind::NotFound,
                     format!("No route found from ION {source_ion} to ION {dest_ion}"),
+                ))
+            }
+            Err(e) => {
+                Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    format!("A-SABR routing error: {:?}", e),
                 ))
             }
         }
