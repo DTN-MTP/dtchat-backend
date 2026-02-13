@@ -80,7 +80,7 @@ impl AppConfig {
             }
         };
 
-        let pred_res = PredictionConfig::try_init(cp_path_unwrapped);
+        let pred_res = PredictionConfig::try_init(cp_path_unwrapped,"VolCgrHybridParenting");
         let pred_opt = match pred_res {
             Ok(pred_conf) => ASabrInitState::Enabled(pred_conf),
             Err(err) => ASabrInitState::Error(err.to_string()),

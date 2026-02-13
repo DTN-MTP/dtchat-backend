@@ -17,3 +17,6 @@ prost-build = "0.14.1"
 
 [features]
 with_delay = ["socket-engine/with_delay"]
+contact_suppression = ["a_sabr/contact_suppression"]
+contact_work_area = ["a_sabr/contact_work_area"]
+first_depleted = ["a_sabr/first_depleted"]

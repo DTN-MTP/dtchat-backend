@@ -1,8 +1,5 @@
 use std::{
-    collections::HashMap,
-    fs,
-    path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    collections::HashMap/* , fmt::format*/, fs, path::{Path, PathBuf}, sync::{Arc, Mutex}
 };
 
 use socket_engine::{
@@ -216,6 +213,19 @@ impl ChatModel {
             return true;
         }
         false
+    }
+
+    pub fn update(&mut self, path:String, algo: &str){
+        match PredictionConfig::try_init(path.clone(), algo){
+            Ok(update_config) => {
+                self.a_sabr = ASabrInitState::Enabled(update_config);
+                self.notify_observers(ChatAppEvent::Info(format!("Update done with : {path} and  {algo}")));
+            }
+            Err(error) => {
+                self.a_sabr = ASabrInitState::Error(error.to_string());
+                self.notify_observers(ChatAppEvent::Info("Update failed".to_string()));
+            }
+        }
     }
 
     fn treat_file_and_text(&mut self, msg_opt: Option<ChatMessage>, proto_msg: &ProtoMessage) {
