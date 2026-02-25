@@ -218,8 +218,11 @@ impl ChatModel {
     pub fn update(&mut self, path:String, algo: &str){
         match PredictionConfig::try_init(path.clone(), algo){
             Ok(update_config) => {
+                let nodes = update_config.nodes_length;
+                let contacts = update_config.contacts_length;
                 self.a_sabr = ASabrInitState::Enabled(update_config);
-                self.notify_observers(ChatAppEvent::Info(format!("Update done with : {path} and  {algo}")));
+                self.notify_observers(ChatAppEvent::Info(format!("Update done with : {algo} and  {path}")));
+                self.notify_observers(ChatAppEvent::Info(format!("{nodes} nodes and {contacts} contacts ")));
             }
             Err(error) => {
                 self.a_sabr = ASabrInitState::Error(error.to_string());

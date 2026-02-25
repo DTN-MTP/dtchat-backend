@@ -15,6 +15,8 @@ pub struct PredictionConfig {
     ion_to_node_id: HashMap<String, NodeID>,
     router: Box<dyn Router<NoManagement, EVLManager> + 'static + Sync + Send>,
     cp_start_time: f64,
+    pub nodes_length : usize,
+    pub contacts_length : usize,
 }
 
 fn extract_ion_id_from_bp_address(bp_address: &str) -> String {
@@ -29,6 +31,9 @@ fn extract_ion_id_from_bp_address(bp_address: &str) -> String {
 impl PredictionConfig {
     pub fn try_init(cp_path: String, algo : &str) -> io::Result<Self> {
         let (nodes, contacts) = IONContactPlan::parse::<NoManagement, EVLManager>(&cp_path)?;
+
+        let nodes_length = nodes.len();
+        let contacts_length = contacts.len();
 
         let node_index_map: HashMap<String, NodeID> = nodes
             .iter()
@@ -52,6 +57,8 @@ impl PredictionConfig {
             ion_to_node_id: node_index_map,
             router,
             cp_start_time,
+            nodes_length,
+            contacts_length,
         })
     }
 
