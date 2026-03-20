@@ -30,12 +30,12 @@ fn extract_ion_id_from_bp_address(bp_address: &str) -> String {
 
 impl PredictionConfig {
     pub fn try_init(cp_path: String, algo : &str) -> io::Result<Self> {
-        let (nodes, contacts) = IONContactPlan::parse::<NoManagement, EVLManager>(&cp_path)?;
+        let cp = IONContactPlan::parse::<NoManagement, EVLManager>(&cp_path)?;
 
-        let nodes_length = nodes.len();
-        let contacts_length = contacts.len();
+        let nodes_length = cp.nodes.len();
+        let contacts_length = cp.contacts.len();
 
-        let node_index_map: HashMap<String, NodeID> = nodes
+        let node_index_map: HashMap<String, NodeID> = cp.nodes
             .iter()
             .enumerate()
             .map(|(index, node)| (node.get_node_name().to_string(), index as NodeID))
@@ -43,8 +43,7 @@ impl PredictionConfig {
 
         let router_box = build_generic_router::<NoManagement, EVLManager>(
             algo,
-            nodes,
-            contacts,
+            cp,
             None,
         ).expect("Failed to build router");
 
