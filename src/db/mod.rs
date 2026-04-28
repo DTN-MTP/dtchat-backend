@@ -22,5 +22,5 @@ pub trait ChatDataBase: Send + Sync {
     fn get_last_messages(&self, count: usize) -> &[ChatMessage];
     fn get_all_messages(&self) -> &Vec<ChatMessage>;
     fn add_message(&mut self, msg: ChatMessage) -> bool;
-    fn mark_as(&mut self, uuid: &String, intent: MarkIntent) -> Option<ChatMessage>;
+    fn mark_as(&mut self, uuid: &str, intent: MarkIntent) -> Option<ChatMessage>;
 }

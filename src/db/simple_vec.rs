@@ -43,21 +43,21 @@ impl SimpleVecDB {
 impl ChatDataBase for SimpleVecDB {
     // Peers
     fn get_rooms(&self) -> &HashMap<String, Room> {
-        return &self.rooms;
+        &self.rooms
     }
 
     // Peers
     fn get_other_peers(&self) -> &HashMap<String, Peer> {
-        return &self.peers;
+        &self.peers
     }
     fn get_localpeer(&self) -> &Peer {
-        return &self.localpeer;
+        &self.localpeer
     }
 
     // Messages
     fn get_last_messages(&self, count: usize) -> &[ChatMessage] {
         let len = self.messages.len();
-        let start = if count > len { 0 } else { len - count };
+        let start = len.saturating_sub(count);
         &self.messages[start..]
     }
 
@@ -70,7 +70,7 @@ impl ChatDataBase for SimpleVecDB {
         &self.messages
     }
 
-    fn mark_as(&mut self, uuid: &String, intent: super::MarkIntent) -> Option<ChatMessage> {
+    fn mark_as(&mut self, uuid: &str, intent: super::MarkIntent) -> Option<ChatMessage> {
         for message in &mut self.messages {
             if message.uuid == *uuid {
                 match intent {

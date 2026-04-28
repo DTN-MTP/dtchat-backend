@@ -38,8 +38,7 @@ impl PredictionConfig {
         let node_index_map: HashMap<String, NodeID> = cp
             .vertices
             .iter()
-            .enumerate()
-            .map(|(_, node)| match node {
+            .map(|node| match node {
                 a_sabr::vertex::Vertex::INode(node) => (node.get_node_name(), node.get_node_id()),
                 a_sabr::vertex::Vertex::ENode(node) => (node.get_node_name(), node.get_node_id()),
                 a_sabr::vertex::Vertex::VNode((name, id)) => (name.clone(), *id),
@@ -144,10 +143,7 @@ impl PredictionConfig {
                     format!("No route found from ION {source_ion} to ION {dest_ion}"),
                 ))
             }
-            Err(e) => Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("A-SABR routing error: {:?}", e),
-            )),
+            Err(e) => Err(io::Error::other(format!("A-SABR routing error: {:?}", e))),
         }
     }
 }

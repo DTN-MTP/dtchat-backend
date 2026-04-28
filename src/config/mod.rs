@@ -29,7 +29,7 @@ impl AppConfig {
     const DEFAULT_CONFIG_PATH_VALUE: &str = "default.yaml";
     const DEFAULT_CONFIG_PATH_ENV_VAR: &str = "CONFIG_PATH";
 
-    pub fn new() -> (Box<dyn ChatDataBase>, ASabrInitState, PathBuf) {
+    pub fn new_build() -> (Box<dyn ChatDataBase>, ASabrInitState, PathBuf) {
         let config_file = match std::env::var(Self::DEFAULT_CONFIG_PATH_ENV_VAR) {
             Ok(path) => path,
             Err(_) => {
@@ -47,7 +47,7 @@ impl AppConfig {
         });
 
         let db = match conf.db_type {
-            DbType::YamlVec => YamlVec::new(&config_file),
+            DbType::YamlVec => YamlVec::new_from_config(&config_file),
         };
 
         let file_reception_path: PathBuf = {

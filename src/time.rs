@@ -26,21 +26,18 @@ impl DTChatTime {
     }
 
     pub fn from_timestamp_millis(timestamp: i64) -> Option<Self> {
-        match DateTime::from_timestamp_millis(timestamp) {
-            Some(dt) => Some(Self { date_time: dt }),
-            None => None,
-        }
+        DateTime::from_timestamp_millis(timestamp).map(|dt| Self { date_time: dt })
     }
     pub fn date_naive(&self) -> NaiveDate {
-        return self.date_time.date_naive();
+        self.date_time.date_naive()
     }
 
     pub fn mins_hours<Tz: TimeZone>(&self, tz: &Tz) -> (u32, u32) {
         let with_time_zone: DateTime<Tz> = self.date_time.with_timezone(tz);
-        return (
+        (
             Timelike::minute(&with_time_zone),
             Timelike::hour(&with_time_zone),
-        );
+        )
     }
 
     pub fn ts_to_str<Tz>(&self, date: bool, time: bool, separator: Option<&str>, tz: &Tz) -> String

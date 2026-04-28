@@ -173,9 +173,15 @@ impl EngineObserver for ChatModel {
     }
 }
 
+impl Default for ChatModel {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ChatModel {
     pub fn new() -> Self {
-        let (db, pred, reception_folder) = AppConfig::new();
+        let (db, pred, reception_folder) = AppConfig::new_build();
         Self {
             // TODO: have an SQL(ite) db.rs
             sort_strategy: SortStrategy::Standard,
@@ -340,14 +346,14 @@ impl ChatModel {
                 room_uuid: room_uuid.clone(),
                 messages: Vec::new(),
             };
-            if participants.len() == 0 {
+            if participants.is_empty() {
                 return None;
             }
 
             for (peer_uuid, endpoint) in participants {
                 room_msg.messages.push(self.send_to_peer(
                     content,
-                    &room_uuid,
+                    room_uuid,
                     peer_uuid,
                     &endpoint,
                     try_prediction,
@@ -361,7 +367,7 @@ impl ChatModel {
     pub fn send_to_peer(
         &mut self,
         content: &Content,
-        room_uuid: &String,
+        room_uuid: &str,
         peer_uuid: String,
         endpoint: &Endpoint,
         try_prediction: bool,
@@ -423,7 +429,7 @@ impl ChatModel {
             }
         }
         self.add_message(chatmsg.clone());
-        return chatmsg.uuid;
+        chatmsg.uuid
     }
 
     pub fn send_ack_to_peer(&mut self, for_msg: &ChatMessage, target_endpoint: Endpoint) {
@@ -478,7 +484,7 @@ impl ChatModel {
         if let Some(received_at) = DTChatTime::from_timestamp_millis(timestamp) {
             if let Some(message) = self
                 .db
-                .mark_as(&message_uuid, MarkIntent::Acked(received_at))
+                .mark_as(message_uuid, MarkIntent::Acked(received_at))
             {
                 self.notify_observers(ChatAppEvent::Message(ChatAppInfoEvent::AckReceived(
                     message,
@@ -529,7 +535,7 @@ impl ChatModel {
 
             if let Some(message) = self
                 .db
-                .mark_as(&target_uuid, MarkIntent::Sent(DTChatTime::now()))
+                .mark_as(target_uuid, MarkIntent::Sent(DTChatTime::now()))
             {
                 self.notify_observers(ChatAppEvent::Message(ChatAppInfoEvent::Sent(message)));
             } else {
@@ -537,7 +543,6 @@ impl ChatModel {
                     format!("Message cannot be found in the database: {}", target_uuid),
                 )));
             }
-            return;
         }
     }
 
@@ -554,7 +559,7 @@ impl ChatModel {
                 // TODO: what is the strategy ? retries ? Maybe "nothing", the handling of this can be user
                 // action, like pressing a "retry" button,
                 MessageType::Text => {
-                    if let Some(_message) = self.db.mark_as(&target_uuid, MarkIntent::Failed) {
+                    if let Some(_message) = self.db.mark_as(target_uuid, MarkIntent::Failed) {
                         // TODO: Same
                     } else {
                         self.notify_observers(ChatAppEvent::Error(

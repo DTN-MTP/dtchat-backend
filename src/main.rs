@@ -221,9 +221,9 @@ impl TerminalScreen {
         }
 
         let used_lines = 8
-            + self.messages.len().min(8).max(1)
-            + self.network_events.len().min(6).max(1)
-            + self.app_events.len().min(6).max(1);
+            + self.messages.len().clamp(1, 8)
+            + self.network_events.len().clamp(1, 6)
+            + self.app_events.len().clamp(1, 6);
 
         let remaining_lines = self.max_lines.saturating_sub(used_lines + 2); // +2 pour input
         for _ in 0..remaining_lines {
@@ -417,7 +417,7 @@ fn main() {
             if !input.is_empty() {
                 chat_model.lock().unwrap().send_to_peer(
                     &Content::Text(input.to_string()),
-                    &"room".to_string(),
+                    "room",
                     distant_peer.uuid.clone(),
                     &distant_peer.endpoints[0],
                     false,
@@ -430,7 +430,7 @@ fn main() {
                 // );
                 chat_model.lock().unwrap().send_to_peer(
                     &Content::File(input.to_string()), // provide the path
-                    &"room".to_string(),
+                    "room",
                     distant_peer.uuid.clone(),
                     &distant_peer.endpoints[0],
                     false,

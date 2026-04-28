@@ -86,7 +86,7 @@ pub struct YamlVec {
 }
 
 impl YamlVec {
-    pub fn new(config_file: &str) -> Box<dyn ChatDataBase> {
+    pub fn new_from_config(config_file: &str) -> Box<dyn ChatDataBase> {
         const PEER_ENV_VAR: &str = "PEER_UUID";
 
         let local_peer_uuid = match std::env::var(PEER_ENV_VAR) {
@@ -96,7 +96,7 @@ impl YamlVec {
             }
         };
 
-        let conf: YamlVec = AppConfig::from_file(&config_file).unwrap_or_else(|e| {
+        let conf: YamlVec = AppConfig::from_file(config_file).unwrap_or_else(|e| {
             panic!("Failed to load configuration from '{config_file}': {e}");
         });
 

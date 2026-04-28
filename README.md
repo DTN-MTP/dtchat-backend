@@ -63,7 +63,7 @@ message ProtoMessage {
   string sender_uuid = 2;
   int64 timestamp = 3;
   string room_uuid = 4;
-  
+
   oneof msg_type {
     TextMessage text = 5;
     AckMessage ack = 6;

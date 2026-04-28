@@ -47,15 +47,15 @@ fn get_timestamps_frm_opt(datetime_opt: Option<DTChatTime>) -> Option<i64> {
 
 impl ChatMessage {
     pub fn new_to_send(
-        sender_uuid: &String,
-        room_uuid: &String,
+        sender_uuid: &str,
+        room_uuid: &str,
         content: Content,
         source_endpoint: Endpoint,
     ) -> Self {
         ChatMessage {
             uuid: generate_uuid(),
-            sender_uuid: sender_uuid.clone(),
-            room_uuid: room_uuid.clone(),
+            sender_uuid: sender_uuid.to_owned(),
+            room_uuid: room_uuid.to_owned(),
             content: content.clone(),
             send_time: DTChatTime::now(),
             send_completed: None,
@@ -75,13 +75,13 @@ impl ChatMessage {
 
     pub fn new_received(proto_msg: &ProtoMessage, content: Content) -> Option<Self> {
         if let Some(datetime) = DTChatTime::from_timestamp_millis(proto_msg.timestamp) {
-            if let Some(source_endpoint) = Endpoint::from_str(&proto_msg.source_endpoint).ok() {
+            if let Ok(source_endpoint) = Endpoint::from_str(&proto_msg.source_endpoint) {
                 return Some(ChatMessage {
                     uuid: proto_msg.uuid.clone(),
                     sender_uuid: proto_msg.sender_uuid.clone(),
                     room_uuid: proto_msg.room_uuid.clone(),
                     content,
-                    send_time: datetime.clone(),
+                    send_time: datetime,
                     send_completed: Some(datetime),
                     predicted_arrival_time: None,
                     receive_time: Some(DTChatTime::now()),
@@ -94,19 +94,19 @@ impl ChatMessage {
     }
 
     pub fn get_shipment_status_otp(&self) -> (DTChatTime, Option<DTChatTime>, Option<DTChatTime>) {
-        return (
+        (
             self.send_time,
             self.predicted_arrival_time,
             self.receive_time,
-        );
+        )
     }
 
     pub fn get_shipment_status_timestamps(&self) -> (i64, Option<i64>, Option<i64>) {
-        return (
+        (
             self.send_time.timestamp_millis(),
             get_timestamps_frm_opt(self.predicted_arrival_time),
             get_timestamps_frm_opt(self.receive_time),
-        );
+        )
     }
 }
 
@@ -133,7 +133,7 @@ pub fn insert_with_strategy(
 }
 
 // Helper for a view having a list of messages
-pub fn sort_with_strategy(messages: &mut Vec<ChatMessage>, strategy: SortStrategy) {
+pub fn sort_with_strategy(messages: &mut [ChatMessage], strategy: SortStrategy) {
     match strategy {
         SortStrategy::Standard => messages.sort_by(standard_cmp),
         SortStrategy::Relative(for_peer) => {
